@@ -11,6 +11,7 @@
 - [数据源目录](docs/source-catalog.md)
 - [API 设计](docs/api-design.md)
 - [开发路线图](docs/roadmap.md)
+- [本地开发](docs/local-development.md)
 
 ## 产品目标
 
@@ -35,3 +36,15 @@
 - 结构化优先，抓取只是入口，核心价值在规范化和实体合并
 - 变更追踪优先，所有关键对象都要支持版本化和快照回溯
 - 策略可配置，税费、评分、源优先级、刷新频率都不写死
+
+## Phase 0 当前状态
+
+已初始化：
+
+- `apps/api` FastAPI 服务骨架
+- `apps/worker` worker 占位命令
+- `apps/web` Next.js 本地页面骨架
+- `packages/shared` 共享配置与运行时工具
+- `docs/local-development.md` 本地启动说明
+
+Phase 0 默认不依赖 Docker。数据库启动基线使用 SQLite；如果未来需要 PostgreSQL/PostGIS，仓库内保留了最小化的可选容器草案 `infra/docker/compose.optional.yml`。

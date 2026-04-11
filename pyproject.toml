@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hk-home-intel"
+version = "0.1.0"
+description = "Local-first Hong Kong residential property intelligence workspace"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "alembic>=1.14,<2.0",
+  "fastapi>=0.115,<1.0",
+  "pydantic-settings>=2.6,<3.0",
+  "sqlalchemy>=2.0,<3.0",
+  "uvicorn>=0.32,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1.0",
+  "pytest>=8.3,<9.0",
+]
+
+[project.scripts]
+hhi-api = "hk_home_intel_api.main:run"
+hhi-worker = "hk_home_intel_worker.main:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["apps/api/src", "apps/worker/src", "packages/shared/src"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "apps/api/src",
+  "apps/worker/src",
+  "packages/shared/src",
+]
+testpaths = ["tests"]
+
