@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 from logging.config import fileConfig
+from pathlib import Path
+import sys
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+for relative in [
+    "apps/api/src",
+    "apps/worker/src",
+    "packages/shared/src",
+    "packages/domain/src",
+    "packages/connectors/src",
+]:
+    sys.path.insert(0, str(REPO_ROOT / relative))
+
+import hk_home_intel_domain.models  # noqa: F401
 from hk_home_intel_shared.models.base import Base
 from hk_home_intel_shared.settings import get_settings
 

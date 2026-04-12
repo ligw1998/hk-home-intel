@@ -31,33 +31,80 @@
 
 目标：
 
-- 打通“采集 -> 规范化 -> 存储 -> 展示”的最小闭环
-- 能在地图和详情页查看核心楼盘信息
+- 打通“官方 source -> 规范化 -> 存储 -> 展示”的第一个可运行闭环
+- 建立后续所有页面和数据源都要复用的 canonical 基线
 
 范围：
 
-- 接入 2 个官方/半官方源 + 1 个商业源
+- 接入 1 个高价值官方源
 - 建 `development` / `listing` / `transaction` / `document` / `watchlist_item`
-- 地址标准化与 development 合并
-- 地图页
-- 楼盘详情页
-- 收藏/决策清单
-- 每日定时更新
+- development 列表与详情 API
+- 官方文档元数据与文件落盘链路
+- 三语字段存储与 API fallback
+- development detail 页
+- map/watchlist 的 baseline UI
 
 完成标准：
 
-- 可浏览核心区域楼盘点位
-- 可查看单盘摘要、当前在售和最近成交
-- 可将楼盘加入 watchlist 并写备注
+- 至少一个官方 source 能端到端入库并在 Web 中浏览
+- development / document / watchlist 形成可验证闭环
+- 后续新 source 不需要重做主数据模型
 
-## Phase 2: 追踪与比较
+当前实现说明：
+
+- 当前代码实际上已经基本完成这一定义下的 Phase 1
+- 已完成内容包括：
+  1. SRPE live index / detail / document download
+  2. development 列表、详情、map baseline、watchlist baseline
+  3. 三语字段底座、快照与本地文档落盘
+- 所以接下来不建议继续无限扩张 Phase 1，而应进入 Phase 2
+
+## Phase 2: 工作台成型
+
+目标：
+
+- 把当前“技术闭环”升级成真正可日常使用的本地研究工作台
+
+范围：
+
+- 真实地图能力
+- bbox / region / district 查询与更完整筛选
+- geocoding 与坐标覆盖率提升
+- watchlist 工作台页
+- 基础 scheduler / refresh job / system monitor
+- 首个可视化更新流或最近变化面板
+
+完成标准：
+
+- 地图页具备稳定的筛选、点选、详情联动能力
+- watchlist 能支持阶段、备注、基础决策管理
+- 能用定时任务完成日级更新，而不是全靠手动命令
+
+## Phase 3: 追踪与比较
 
 目标：
 
 - 把静态看盘变成动态追踪和横向比较
 
+当前建议拆成 3 个子阶段：
+
+1. `Phase 3A`
+   - `price_event`
+   - `GET /api/v1/listings/feed`
+   - 第一商业源 adapter scaffold
+   - 房源变化事件的规范化与入库
+2. `Phase 3B`
+   - 房源流页面
+   - 单 listing / 单 development 变化时间线
+   - 历史价格曲线
+3. `Phase 3C`
+   - 第一个比较页
+   - 第二商业源
+   - 跨源 comparable 与成交参考联动
+
 范围：
 
+- 第一个商业源
 - `price_event`
 - 房源流页面
 - 户型/单位比较页
@@ -72,7 +119,13 @@
 - 可对多个相似户型并排比较
 - 单盘支持查看关键文档和历史变化
 
-## Phase 3: 决策辅助
+推荐顺序：
+
+1. 先把 `price_event` 和 listing feed API 落成基础层
+2. 再接入中原地产香港，优先验证“新增 / 降价 / 撤盘”事件
+3. 之后再做页面与跨源比较，不把 UI 先行做空壳
+
+## Phase 4: 决策辅助
 
 目标：
 
@@ -93,7 +146,7 @@
 - shortlist 可按解释性分数排序
 - 每个候选项可展示“为什么值得看/为什么应谨慎”
 
-## Phase 4: 智能增强
+## Phase 5: 智能增强
 
 目标：
 
@@ -153,24 +206,33 @@
 内容：
 
 - 能导入一个官方源
-- 能在地图看到 development
-- 能打开楼盘详情
+- 能打开 development 详情
+- 能落官方文档到本地
 
 ### Milestone B
 
 内容：
 
-- 能导入一个商业源
-- 能看到当前 active listing
-- 能生成简单房源流
+- 地图页、watchlist、scheduler 达到可日常使用
+- 能完成低频日级刷新
+- 能开始形成稳定 shortlist
+
+备注：
+
+- 这是新的 Phase 2 收尾标准，不再要求商业源已经接入
 
 ### Milestone C
 
 内容：
 
+- 能导入第一个商业源
 - 能比较多个 development / unit type
-- 能看成交参考和文档
-- 能维护 watchlist
+- 能看成交参考、价格事件和文档
+
+备注：
+
+- 第一商业源默认按中原地产香港实现
+- 第二商业源默认按利嘉阁实现
 
 ## 5. 质量门槛
 

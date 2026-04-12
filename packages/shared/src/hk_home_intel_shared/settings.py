@@ -32,6 +32,8 @@ class Settings(BaseSettings):
 
     web_app_url: str = Field(default="http://127.0.0.1:3000")
     data_root: Path = Field(default=REPO_ROOT / "data")
+    config_root: Path = Field(default=REPO_ROOT / "configs")
+    http_trust_env: bool = Field(default=True)
 
     @property
     def cors_allow_origins_list(self) -> list[str]:
@@ -41,3 +43,7 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+def clear_settings_cache() -> None:
+    get_settings.cache_clear()

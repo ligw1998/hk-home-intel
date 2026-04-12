@@ -1,6 +1,24 @@
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 
 from hk_home_intel_api.main import create_app
+from hk_home_intel_domain.enums import (
+    JobRunStatus,
+    ListingSegment,
+    ListingStatus,
+    ListingType,
+    ParseStatus,
+    PriceEventType,
+    SnapshotKind,
+    SourceConfidence,
+    WatchlistStage,
+)
+from hk_home_intel_domain.models import Development, Listing, PriceEvent, RefreshJobRun, SourceSnapshot, WatchlistItem
+from hk_home_intel_shared.db import get_engine, get_session_factory, reset_db_caches
+from hk_home_intel_shared.models.base import Base
+from hk_home_intel_shared.settings import clear_settings_cache
 
 
 def test_health_endpoint() -> None:
@@ -26,3 +44,320 @@ def test_cors_preflight_for_local_web() -> None:
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+@pytest.fixture()
+def isolated_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    app = create_app()
+    client = TestClient(app)
+    yield client
+
+    client.close()
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_list_developments_returns_seeded_rows(isolated_app: TestClient, tmp_path: Path) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        session.add(
+            Development(
+                name_zh="测试楼盘",
+                name_en="Test Development",
+                district="Hong Kong East",
+                region="Hong Kong Island",
+                listing_segment=ListingSegment.NEW,
+                source_confidence=SourceConfidence.HIGH,
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/developments")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["name_zh"] == "测试楼盘"
+
+
+def test_watchlist_upsert_and_list(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            name_zh="收藏测试盘",
+            name_en="Watchlist House",
+            district="Hong Kong East",
+            region="Hong Kong Island",
+            listing_segment=ListingSegment.FIRST_HAND_REMAINING,
+            source_confidence=SourceConfidence.HIGH,
+        )
+        session.add(development)
+        session.commit()
+        session.refresh(development)
+        development_id = development.id
+
+    create_response = isolated_app.post(
+        "/api/v1/watchlist",
+        json={
+            "development_id": development_id,
+            "decision_stage": "shortlisted",
+            "note": "Need to compare against nearby stock.",
+            "tags": ["harbour", "new"],
+        },
+    )
+
+    assert create_response.status_code == 201
+    create_payload = create_response.json()
+    assert create_payload["development_id"] == development_id
+    assert create_payload["decision_stage"] == "shortlisted"
+
+    list_response = isolated_app.get(f"/api/v1/watchlist?development_id={development_id}")
+    assert list_response.status_code == 200
+    list_payload = list_response.json()
+    assert len(list_payload) == 1
+    assert list_payload[0]["development_name"] == "收藏测试盘"
+
+
+def test_system_overview_and_refresh_jobs(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        session.add(
+            RefreshJobRun(
+                job_name="srpe_refresh",
+                source="srpe",
+                trigger_kind="manual",
+                status=JobRunStatus.SUCCEEDED,
+                summary_json={"developments_created": 2},
+            )
+        )
+        session.commit()
+
+    overview_response = isolated_app.get("/api/v1/system/overview")
+    assert overview_response.status_code == 200
+    overview_payload = overview_response.json()
+    assert "development_count" in overview_payload
+    assert overview_payload["latest_job"]["job_name"] == "srpe_refresh"
+
+    jobs_response = isolated_app.get("/api/v1/system/refresh-jobs")
+    assert jobs_response.status_code == 200
+    jobs_payload = jobs_response.json()
+    assert len(jobs_payload) == 1
+    assert jobs_payload[0]["status"] == "succeeded"
+
+    plans_response = isolated_app.get("/api/v1/system/scheduler-plans")
+    assert plans_response.status_code == 200
+    plans_payload = plans_response.json()
+    assert any(item["name"] == "daily_local" for item in plans_payload)
+    assert any("due_now" in item for item in plans_payload)
+    assert any("has_override" in item for item in plans_payload)
+
+
+def test_run_scheduler_plan_endpoint(isolated_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "hk_home_intel_api.routes.system.launch_refresh_plan",
+        lambda database_url, plan_name, trigger_kind="api": {
+            "job_id": "job-123",
+            "plan": plan_name,
+        },
+    )
+
+    response = isolated_app.post("/api/v1/system/run-plan", json={"plan_name": "watchlist_probe"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "accepted"
+    assert payload["job_id"] == "job-123"
+    assert payload["plan"] == "watchlist_probe"
+
+
+def test_run_due_scheduler_plans_endpoint(isolated_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "hk_home_intel_api.routes.system.launch_due_refresh_plans",
+        lambda database_url, trigger_kind="api": {
+            "due_plan_names": ["daily_local"],
+            "run_count": 1,
+            "launched": [{"job_id": "job-456", "plan": "daily_local"}],
+        },
+    )
+
+    response = isolated_app.post("/api/v1/system/run-due-plans")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["due_plan_names"] == ["daily_local"]
+    assert payload["run_count"] == 1
+    assert payload["job_ids"] == ["job-456"]
+
+
+def test_run_scheduler_plan_endpoint_real_launch_does_not_500(isolated_app: TestClient) -> None:
+    response = isolated_app.post("/api/v1/system/run-plan", json={"plan_name": "daily_local"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "accepted"
+    assert payload["plan"] == "daily_local"
+    assert payload["job_id"]
+
+
+def test_scheduler_plan_override_update_and_reset(isolated_app: TestClient) -> None:
+    update_response = isolated_app.patch(
+        "/api/v1/system/scheduler-plans/daily_local",
+        json={
+            "auto_run": False,
+            "interval_minutes": 720,
+            "task_overrides": [
+                {
+                    "job_name": "srpe_refresh",
+                    "limit": 8,
+                    "with_details": False,
+                    "rotation_mode": "none",
+                    "rotation_step": 8,
+                }
+            ],
+        },
+    )
+
+    assert update_response.status_code == 200
+    update_payload = update_response.json()
+    assert update_payload["name"] == "daily_local"
+    assert update_payload["auto_run"] is False
+    assert update_payload["interval_minutes"] == 720
+    assert update_payload["has_override"] is True
+    assert update_payload["tasks"][0]["limit"] == 8
+    assert update_payload["tasks"][0]["rotation_mode"] == "none"
+
+    list_response = isolated_app.get("/api/v1/system/scheduler-plans")
+    assert list_response.status_code == 200
+    listed = next(item for item in list_response.json() if item["name"] == "daily_local")
+    assert listed["interval_minutes"] == 720
+    assert listed["tasks"][0]["limit"] == 8
+    assert listed["has_override"] is True
+
+    reset_response = isolated_app.delete("/api/v1/system/scheduler-plans/daily_local/override")
+    assert reset_response.status_code == 200
+    reset_payload = reset_response.json()
+    assert reset_payload["has_override"] is False
+    assert reset_payload["auto_run"] is True
+    assert reset_payload["interval_minutes"] == 1440
+    assert reset_payload["tasks"][0]["limit"] == 20
+
+
+def test_recent_activity_endpoint(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            source="srpe",
+            source_external_id="dev-1",
+            source_url="https://example.test/development",
+            name_zh="活动测试盘",
+            name_translations_json={"zh-Hant": "活動測試盤", "zh-Hans": "活动测试盘"},
+            district="Hong Kong East",
+            region="Hong Kong Island",
+            listing_segment=ListingSegment.FIRST_HAND_REMAINING,
+            source_confidence=SourceConfidence.HIGH,
+        )
+        session.add(development)
+        session.flush()
+
+        session.add(
+            SourceSnapshot(
+                source="srpe",
+                object_type="development",
+                object_external_id="dev-1",
+                source_url="https://example.test/development",
+                snapshot_kind=SnapshotKind.JSON,
+                parse_status=ParseStatus.PARSED,
+                metadata_json={"name": "activity"},
+            )
+        )
+        session.add(
+            WatchlistItem(
+                development_id=development.id,
+                decision_stage=WatchlistStage.SHORTLISTED,
+                note="Keep watching recent updates.",
+            )
+        )
+        session.add(
+            RefreshJobRun(
+                job_name="srpe_refresh",
+                source="srpe",
+                trigger_kind="manual",
+                status=JobRunStatus.SUCCEEDED,
+                summary_json={"developments_updated": 1, "documents_upserted": 2, "snapshots_created": 3},
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/activity/recent?limit=10&lang=zh-Hant")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["total_items"] == 3
+    assert {item["kind"] for item in payload["items"]} == {"refresh_job", "source_snapshot", "watchlist_update"}
+    assert any(item["development_name"] == "活動測試盤" for item in payload["items"] if item["kind"] != "refresh_job")
+
+
+def test_listings_feed_returns_seeded_price_events(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            source="srpe",
+            source_external_id="dev-feed",
+            name_zh="事件测试盘",
+            name_translations_json={"zh-Hant": "事件測試盤", "zh-Hans": "事件测试盘"},
+            district="Hong Kong East",
+            region="Hong Kong Island",
+            listing_segment=ListingSegment.FIRST_HAND_REMAINING,
+            source_confidence=SourceConfidence.HIGH,
+        )
+        session.add(development)
+        session.flush()
+        listing = Listing(
+            source="centanet",
+            source_listing_id="listing-1",
+            development_id=development.id,
+            title="Price adjusted listing",
+            listing_type=ListingType.SECOND_HAND,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add(listing)
+        session.flush()
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.PRICE_DROP,
+                development_id=development.id,
+                listing_id=listing.id,
+                old_price_hkd=10000000,
+                new_price_hkd=9500000,
+                old_status="active",
+                new_status="active",
+            )
+        )
+        session.commit()
+
+    feed_response = isolated_app.get("/api/v1/listings/feed?lang=zh-Hant")
+    assert feed_response.status_code == 200
+    feed_payload = feed_response.json()
+    assert len(feed_payload) == 1
+    assert feed_payload[0]["event_type"] == "price_drop"
+    assert feed_payload[0]["development_name"] == "事件測試盤"
+    assert feed_payload[0]["new_price_hkd"] == 9500000.0
+
+    events_response = isolated_app.get(f"/api/v1/listings/{feed_payload[0]['listing_id']}/events?lang=zh-Hant")
+    assert events_response.status_code == 200
+    events_payload = events_response.json()
+    assert len(events_payload) == 1
+    assert events_payload[0]["old_price_hkd"] == 10000000.0

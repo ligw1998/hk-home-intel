@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.14,<2.0",
   "fastapi>=0.115,<1.0",
+  "httpx>=0.28,<1.0",
   "pydantic-settings>=2.6,<3.0",
   "sqlalchemy>=2.0,<3.0",
   "uvicorn>=0.32,<1.0",
@@ -18,7 +19,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.28,<1.0",
   "pytest>=8.3,<9.0",
 ]
 
@@ -30,13 +30,14 @@ hhi-worker = "hk_home_intel_worker.main:main"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = ["apps/api/src", "apps/worker/src", "packages/shared/src"]
+where = ["apps/api/src", "apps/worker/src", "packages/shared/src", "packages/domain/src", "packages/connectors/src"]
 
 [tool.pytest.ini_options]
 pythonpath = [
   "apps/api/src",
   "apps/worker/src",
   "packages/shared/src",
+  "packages/domain/src",
+  "packages/connectors/src",
 ]
 testpaths = ["tests"]
-

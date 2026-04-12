@@ -71,6 +71,20 @@
 - 作为 `listing_snapshot` 和补充字段来源
 - 不作为唯一事实源
 
+当前已锁定的首批商业源优先级：
+
+1. 中原地产香港 `https://hk.centanet.com/info/index`
+2. 利嘉阁 `https://www.ricacorp.com/zh-hk/`
+
+说明：
+
+- 这两个 source 已写入开发基线，后续不会被遗忘或替换成低优先级站点
+- 当前 Phase 1 仍以官方 SRPE 链路验证为主，商业源的正式接入放到后续阶段
+- 当前进入 Phase 3 后，优先顺序明确为：
+  1. 先落 `price_event` 与 listing feed 的 canonical 层
+  2. 再实现中原地产香港 adapter
+  3. 之后才接利嘉阁
+
 ### 2.4 D 类：人工补充源
 
 用途：
@@ -112,6 +126,7 @@ source:
 1. SRPE
 2. 地址/地理标准化服务
 3. 一个商业 listing 源
+   当前锁定为中原地产香港
 
 目标：
 
@@ -120,6 +135,7 @@ source:
 ### Phase 2
 
 1. 第二个商业 listing 源
+   当前锁定为利嘉阁
 2. 成交/统计类官方源
 3. 图片补齐和文档抽取增强
 

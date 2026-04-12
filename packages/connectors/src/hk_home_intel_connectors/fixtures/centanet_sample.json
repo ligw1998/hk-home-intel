@@ -1,0 +1,70 @@
+{
+  "listings": [
+    {
+      "external_id": "centanet-1001",
+      "source_url": "https://hk.centanet.com/example/centanet-1001",
+      "title": "维港汇 3 房调整叫价",
+      "title_translations": {
+        "zh-Hant": "維港匯 3 房調整叫價",
+        "zh-Hans": "维港汇 3 房调整叫价",
+        "en": "Grand Victoria 3BR price adjusted"
+      },
+      "asking_price_hkd": 16800000,
+      "price_per_sqft": 22340,
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "saleable_area_sqft": 752,
+      "gross_area_sqft": null,
+      "status": "active",
+      "development": {
+        "external_id": "centanet-dev-2001",
+        "source_url": "https://hk.centanet.com/example/grand-victoria",
+        "name_zh": "維港匯",
+        "name_en": "Grand Victoria",
+        "name_translations": {
+          "zh-Hant": "維港匯",
+          "zh-Hans": "维港汇",
+          "en": "Grand Victoria"
+        },
+        "address": "Nam Cheong, Kowloon",
+        "district": "Sham Shui Po",
+        "region": "Kowloon",
+        "lat": 22.3275,
+        "lng": 114.1489
+      }
+    },
+    {
+      "external_id": "centanet-1002",
+      "source_url": "https://hk.centanet.com/example/centanet-1002",
+      "title": "MONACO ONE 2 房笋盘",
+      "title_translations": {
+        "zh-Hant": "MONACO ONE 2 房筍盤",
+        "zh-Hans": "MONACO ONE 2 房笋盘",
+        "en": "MONACO ONE 2BR new listing"
+      },
+      "asking_price_hkd": 13200000,
+      "price_per_sqft": 24673,
+      "bedrooms": 2,
+      "bathrooms": 1,
+      "saleable_area_sqft": 535,
+      "gross_area_sqft": null,
+      "status": "active",
+      "development": {
+        "external_id": "centanet-dev-2002",
+        "source_url": "https://hk.centanet.com/example/monaco-one",
+        "name_zh": "MONACO ONE",
+        "name_en": "MONACO ONE",
+        "name_translations": {
+          "zh-Hant": "MONACO ONE",
+          "zh-Hans": "MONACO ONE",
+          "en": "MONACO ONE"
+        },
+        "address": "Kai Tak, Kowloon",
+        "district": "Kowloon City",
+        "region": "Kowloon",
+        "lat": 22.3199,
+        "lng": 114.2131
+      }
+    }
+  ]
+}

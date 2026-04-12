@@ -1,0 +1,164 @@
+{
+  "source": "srpe",
+  "generated_at": "2026-04-12T00:00:00Z",
+  "developments": [
+    {
+      "external_id": "srpe-dev-001",
+      "name_zh": "海璇 II",
+      "name_zh_hant": "海璇 II",
+      "name_zh_hans": "海璇 II",
+      "name_en": "Victoria Harbour II",
+      "address": "North Point, Hong Kong",
+      "address_zh_hant": "香港北角",
+      "address_zh_hans": "香港北角",
+      "address_en": "North Point, Hong Kong",
+      "district": "Hong Kong East",
+      "region": "Hong Kong Island",
+      "developers": ["Example Developer A"],
+      "completion_year": 2024,
+      "listing_segment": "first_hand_remaining",
+      "source_url": "https://www.srpe.gov.hk/opip/",
+      "documents": [
+        {
+          "external_id": "srpe-doc-001",
+          "title": "Sales Brochure",
+          "title_zh_hant": "售樓說明書",
+          "title_zh_hans": "售楼说明书",
+          "title_en": "Sales Brochure",
+          "doc_type": "brochure",
+          "published_at": "2026-03-01T00:00:00Z",
+          "source_url": "https://www.srpe.gov.hk/opip/"
+        },
+        {
+          "external_id": "srpe-doc-002",
+          "title": "Price List No. 5",
+          "title_en": "Price List No. 5",
+          "doc_type": "price_list",
+          "published_at": "2026-03-15T00:00:00Z",
+          "source_url": "https://www.srpe.gov.hk/opip/"
+        }
+      ],
+      "listings": [
+        {
+          "external_id": "srpe-listing-001",
+          "title": "Tower 1A, 18/F, Flat A",
+          "title_zh_hant": "第1A座 18樓 A室",
+          "title_zh_hans": "第1A座 18楼 A室",
+          "title_en": "Tower 1A, 18/F, Flat A",
+          "listing_type": "first_hand_remaining",
+          "asking_price_hkd": 28600000,
+          "price_per_sqft": 31800,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "saleable_area_sqft": 899,
+          "gross_area_sqft": null,
+          "status": "active",
+          "first_seen_at": "2026-04-01T00:00:00Z",
+          "last_seen_at": "2026-04-12T00:00:00Z",
+          "source_url": "https://www.srpe.gov.hk/opip/"
+        }
+      ],
+      "transactions": [
+        {
+          "external_id": "srpe-txn-001",
+          "transaction_date": "2026-03-18",
+          "registration_date": "2026-03-25",
+          "price_hkd": 27980000,
+          "price_per_sqft": 31123,
+          "transaction_type": "primary",
+          "doc_ref": "Price List No. 5",
+          "source_url": "https://www.srpe.gov.hk/opip/"
+        }
+      ]
+    },
+    {
+      "external_id": "srpe-dev-002",
+      "name_zh": "啟德海灣",
+      "name_zh_hant": "啟德海灣",
+      "name_zh_hans": "启德海湾",
+      "name_en": "Kai Tak Harbour",
+      "address": "Kai Tak, Kowloon",
+      "address_zh_hant": "九龍啟德",
+      "address_zh_hans": "九龙启德",
+      "address_en": "Kai Tak, Kowloon",
+      "district": "Kowloon City",
+      "region": "Kowloon",
+      "developers": ["Example Developer B"],
+      "completion_year": 2025,
+      "listing_segment": "first_hand_remaining",
+      "source_url": "https://www.srpe.gov.hk/opip/",
+      "documents": [
+        {
+          "external_id": "srpe-doc-101",
+          "title": "Sales Brochure",
+          "title_zh_hant": "售樓說明書",
+          "title_zh_hans": "售楼说明书",
+          "title_en": "Sales Brochure",
+          "doc_type": "brochure",
+          "published_at": "2026-02-01T00:00:00Z",
+          "source_url": "https://www.srpe.gov.hk/opip/"
+        },
+        {
+          "external_id": "srpe-doc-102",
+          "title": "Transaction Record",
+          "title_zh_hant": "成交紀錄冊",
+          "title_zh_hans": "成交纪录册",
+          "title_en": "Transaction Record",
+          "doc_type": "transaction_record",
+          "published_at": "2026-04-10T00:00:00Z",
+          "source_url": "https://www.srpe.gov.hk/opip/"
+        }
+      ],
+      "listings": [
+        {
+          "external_id": "srpe-listing-101",
+          "title": "Tower 2, 12/F, Flat D",
+          "title_zh_hant": "第2座 12樓 D室",
+          "title_zh_hans": "第2座 12楼 D室",
+          "title_en": "Tower 2, 12/F, Flat D",
+          "listing_type": "first_hand_remaining",
+          "asking_price_hkd": 12800000,
+          "price_per_sqft": 22100,
+          "bedrooms": 2,
+          "bathrooms": 1,
+          "saleable_area_sqft": 579,
+          "gross_area_sqft": null,
+          "status": "active",
+          "first_seen_at": "2026-04-03T00:00:00Z",
+          "last_seen_at": "2026-04-12T00:00:00Z",
+          "source_url": "https://www.srpe.gov.hk/opip/"
+        },
+        {
+          "external_id": "srpe-listing-102",
+          "title": "Tower 2, 19/F, Flat B",
+          "title_zh_hant": "第2座 19樓 B室",
+          "title_zh_hans": "第2座 19楼 B室",
+          "title_en": "Tower 2, 19/F, Flat B",
+          "listing_type": "first_hand_remaining",
+          "asking_price_hkd": 15200000,
+          "price_per_sqft": 22857,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "saleable_area_sqft": 665,
+          "gross_area_sqft": null,
+          "status": "active",
+          "first_seen_at": "2026-04-05T00:00:00Z",
+          "last_seen_at": "2026-04-12T00:00:00Z",
+          "source_url": "https://www.srpe.gov.hk/opip/"
+        }
+      ],
+      "transactions": [
+        {
+          "external_id": "srpe-txn-101",
+          "transaction_date": "2026-04-02",
+          "registration_date": "2026-04-08",
+          "price_hkd": 12680000,
+          "price_per_sqft": 21899,
+          "transaction_type": "primary",
+          "doc_ref": "Transaction Record",
+          "source_url": "https://www.srpe.gov.hk/opip/"
+        }
+      ]
+    }
+  ]
+}

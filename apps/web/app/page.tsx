@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type HealthResponse = {
@@ -15,34 +16,67 @@ type HealthResponse = {
   };
 };
 
+type DevelopmentSummary = {
+  id: string;
+  source_url: string | null;
+  name_zh: string | null;
+  name_en: string | null;
+  name_translations: Record<string, string>;
+  display_name: string | null;
+  district: string | null;
+  region: string | null;
+  completion_year: number | null;
+  listing_segment: string;
+};
+
+type DevelopmentListResponse = {
+  items: DevelopmentSummary[];
+  total: number;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 export default function HomePage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [developments, setDevelopments] = useState<DevelopmentSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [developmentError, setDevelopmentError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadHealth() {
+    async function loadPageData() {
       try {
-        const response = await fetch(`${API_BASE}/api/v1/health`);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        const [healthResponse, developmentResponse] = await Promise.all([
+          fetch(`${API_BASE}/api/v1/health`),
+          fetch(`${API_BASE}/api/v1/developments?limit=6`),
+        ]);
+        if (!healthResponse.ok) {
+          throw new Error(`health HTTP ${healthResponse.status}`);
         }
-        const payload = (await response.json()) as HealthResponse;
+        if (!developmentResponse.ok) {
+          throw new Error(`developments HTTP ${developmentResponse.status}`);
+        }
+        const healthPayload = (await healthResponse.json()) as HealthResponse;
+        const developmentPayload =
+          (await developmentResponse.json()) as DevelopmentListResponse;
         if (!cancelled) {
-          setHealth(payload);
+          setHealth(healthPayload);
+          setDevelopments(developmentPayload.items);
           setError(null);
+          setDevelopmentError(null);
         }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Unknown error");
+          setDevelopmentError(
+            err instanceof Error ? err.message : "Unknown error",
+          );
         }
       }
     }
 
-    loadHealth();
+    loadPageData();
     return () => {
       cancelled = true;
     };
@@ -51,13 +85,20 @@ export default function HomePage() {
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 0</p>
+        <p className="eyebrow">Phase 2</p>
         <h1>HK Home Intel</h1>
         <p className="lead">
-          Local-first Hong Kong residential property research workspace. This
-          baseline only wires the app shell, runtime config, health endpoint,
-          worker placeholder, and local development workflow.
+          Local-first Hong Kong residential property research workspace. The
+          current baseline already exposes the first official SRPE ingest path,
+          a real map workspace, a watchlist board, a system monitor, and a
+          recent activity feed for day-to-day review.
         </p>
+        <div className="hero-actions">
+          <Link href="/map">Open map view</Link>
+          <Link href="/activity">Open activity feed</Link>
+          <Link href="/watchlist">Open watchlist</Link>
+          <Link href="/system">Open system monitor</Link>
+        </div>
       </section>
 
       <section className="grid">
@@ -95,24 +136,45 @@ export default function HomePage() {
         </article>
 
         <article className="panel">
-          <h2>Phase 0 Scope</h2>
+          <h2>Phase 2 Workspace</h2>
           <ul className="bullet-list">
-            <li>Monorepo directory scaffold</li>
-            <li>FastAPI application shell and health route</li>
-            <li>Worker command placeholder</li>
-            <li>Local environment config and runtime directories</li>
-            <li>Next.js dashboard shell for future tabs</li>
+            <li>Core canonical development, document, listing, and transaction tables</li>
+            <li>Official SRPE index and selected development detail import</li>
+            <li>Coordinate-backed Leaflet map with watchlist overlay</li>
+            <li>Recent activity feed across refresh runs, snapshots, and watchlist updates</li>
+            <li>System monitor with UI-triggered refresh plans</li>
+            <li>Three-language display fallback in the API layer</li>
           </ul>
         </article>
 
         <article className="panel">
-          <h2>Next Milestones</h2>
-          <ul className="bullet-list">
-            <li>Schema migrations and domain tables</li>
-            <li>First official source adapter</li>
-            <li>Map page and development index endpoint</li>
-            <li>Watchlist CRUD and persistence</li>
-          </ul>
+          <h2>Developments</h2>
+          {developmentError ? (
+            <p className="muted">Development feed unavailable: {developmentError}</p>
+          ) : developments.length > 0 ? (
+            <ul className="development-list">
+              {developments.map((item) => (
+                <li key={item.id}>
+                  <strong>
+                    <Link href={`/developments/${item.id}`}>
+                      {item.display_name ?? item.name_zh ?? item.name_en ?? item.id}
+                    </Link>
+                  </strong>
+                  <span>
+                    {item.district ?? "Unknown district"} / {item.listing_segment}
+                  </span>
+                  <span>
+                    {item.completion_year ? `Completion ${item.completion_year}` : "Year TBD"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="empty-state">
+              <p className="muted">No developments imported yet.</p>
+              <code>conda run -n py311 hhi-worker import-srpe-index --lang en --limit 5</code>
+            </div>
+          )}
         </article>
       </section>
     </main>

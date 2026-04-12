@@ -75,11 +75,54 @@ h1 {
   line-height: 1.65;
 }
 
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.hero-actions a {
+  padding: 10px 14px;
+  border: 1px solid rgba(49, 44, 35, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 252, 245, 0.72);
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
   margin-top: 20px;
+}
+
+.detail-grid {
+  align-items: flex-start;
+}
+
+.map-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 320px;
+  gap: 18px;
+  margin-top: 20px;
+  align-items: flex-start;
+}
+
+.activity-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 20px;
+  align-items: flex-start;
 }
 
 .panel {
@@ -121,6 +164,451 @@ h1 {
   line-height: 1.7;
 }
 
+.development-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.development-list li {
+  display: grid;
+  gap: 4px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(49, 44, 35, 0.08);
+}
+
+.development-list strong {
+  font-size: 0.98rem;
+}
+
+.development-list strong a {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.development-list span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.detail-span-2 {
+  grid-column: span 2;
+}
+
+.compact-kv-list {
+  margin-top: 18px;
+}
+
+.filter-panel,
+.detail-panel {
+  position: sticky;
+  top: 24px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  border: 1px solid rgba(49, 44, 35, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 252, 245, 0.92);
+  padding: 12px 14px;
+  color: var(--text);
+  font: inherit;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 14px;
+}
+
+.checkbox-field input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.legend {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.legend div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-bubble {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.legend-ring {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  border: 3px solid #1f1b16;
+  border-radius: 999px;
+}
+
+.map-panel {
+  min-height: 640px;
+}
+
+.leaflet-shell {
+  min-height: 560px;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+}
+
+.leaflet-map {
+  min-height: 560px;
+  width: 100%;
+}
+
+.leaflet-container {
+  font: inherit;
+}
+
+.leaflet-popup-content {
+  margin: 12px 14px;
+}
+
+.map-popup {
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.map-popup span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.bubble-primary {
+  background: #bb6126;
+  color: #fff8f1;
+}
+
+.bubble-muted {
+  background: #355c70;
+  color: #f3fbff;
+}
+
+.map-popup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.selected-card {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.selected-card span {
+  color: var(--muted);
+  font-size: 0.94rem;
+}
+
+.activity-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-item {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 252, 245, 0.72);
+}
+
+.activity-item strong {
+  font-size: 1rem;
+}
+
+.activity-item span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.activity-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.activity-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.activity-badge-refresh_job {
+  background: rgba(155, 93, 46, 0.14);
+  color: #7f441f;
+}
+
+.activity-badge-source_snapshot {
+  background: rgba(53, 92, 112, 0.14);
+  color: #244456;
+}
+
+.activity-badge-watchlist_update {
+  background: rgba(75, 110, 63, 0.16);
+  color: #355028;
+}
+
+.activity-detail {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.watchlist-box {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.watchlist-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.action-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(53, 92, 112, 0.12);
+  color: var(--text);
+}
+
+.action-button {
+  border: 0;
+  border-radius: 999px;
+  background: #9b5d2e;
+  color: #fff7ef;
+  padding: 10px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.action-button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.action-button-secondary {
+  background: #355c70;
+}
+
+.watchlist-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 20px;
+  align-items: flex-start;
+}
+
+.watchlist-board {
+  display: grid;
+  gap: 18px;
+}
+
+.watchlist-card {
+  display: grid;
+  gap: 16px;
+}
+
+.watchlist-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.watchlist-card-head h2 {
+  margin: 0 0 6px;
+}
+
+.watchlist-updated {
+  color: var(--muted);
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+.watchlist-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.watchlist-meta span {
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(49, 44, 35, 0.06);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.watchlist-editor {
+  display: grid;
+  grid-template-columns: 180px 160px minmax(0, 1fr);
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.watchlist-editor textarea {
+  width: 100%;
+  border: 1px solid rgba(49, 44, 35, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 252, 245, 0.92);
+  padding: 12px 14px;
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.map-list {
+  display: grid;
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.map-list-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 252, 245, 0.72);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.map-list-item-active {
+  border-color: rgba(155, 93, 46, 0.42);
+  background: rgba(155, 93, 46, 0.08);
+}
+
+.map-list-item span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.job-summary {
+  margin: 6px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(49, 44, 35, 0.06);
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+  max-height: 220px;
+}
+
+.plan-guideline {
+  margin-top: 6px;
+}
+
+.plan-guideline summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.plan-guideline p {
+  margin: 8px 0 0;
+}
+
+.plan-editor,
+.task-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 252, 245, 0.6);
+}
+
+@media (max-width: 980px) {
+  .grid,
+  .activity-layout,
+  .map-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-span-2 {
+    grid-column: auto;
+  }
+
+  .filter-panel,
+  .detail-panel {
+    position: static;
+  }
+}
+
+.empty-state {
+  display: grid;
+  gap: 12px;
+}
+
+.empty-state code {
+  display: inline-block;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(49, 44, 35, 0.06);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
 .muted {
   margin: 0;
   color: var(--muted);
@@ -128,6 +616,40 @@ h1 {
 
 @media (max-width: 920px) {
   .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .map-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .watchlist-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-span-2 {
+    grid-column: auto;
+  }
+
+  .filter-panel,
+  .detail-panel {
+    position: static;
+  }
+
+  .map-panel {
+    min-height: auto;
+  }
+
+  .leaflet-shell,
+  .leaflet-map {
+    min-height: 420px;
+  }
+
+  .watchlist-card-head {
+    flex-direction: column;
+  }
+
+  .watchlist-editor {
     grid-template-columns: 1fr;
   }
 

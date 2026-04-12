@@ -48,3 +48,20 @@
 - `docs/local-development.md` 本地启动说明
 
 Phase 0 默认不依赖 Docker。数据库启动基线使用 SQLite；如果未来需要 PostgreSQL/PostGIS，仓库内保留了最小化的可选容器草案 `infra/docker/compose.optional.yml`。
+
+## Phase 1 当前状态
+
+已新增：
+
+- core domain models 与枚举
+- Alembic 初始 revision
+- `/api/v1/developments` 查询接口
+- `/api/v1/developments/{id}` 聚合详情接口
+- SRPE connector scaffold
+- SRPE sample import workflow
+
+当前建议：
+
+- 将当前状态视为“Phase 1 基线已基本完成”
+- 后续不再把地图精细化、scheduler、工作台完善继续塞进 Phase 1
+- 下一步按 `docs/roadmap.md` 进入新的 Phase 2：工作台成型

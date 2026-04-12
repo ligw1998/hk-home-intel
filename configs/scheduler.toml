@@ -1,0 +1,27 @@
+[plans.daily_local]
+description = "Low-frequency local daily refresh baseline for official sources."
+auto_run = true
+interval_minutes = 1440
+
+[[plans.daily_local.tasks]]
+job_name = "srpe_refresh"
+source = "srpe"
+command = "srpe_refresh"
+language = "en"
+limit = 20
+with_details = true
+rotation_mode = "cycle"
+rotation_step = 20
+
+[plans.watchlist_probe]
+description = "Shorter manual refresh plan for quick verification while developing."
+auto_run = false
+
+[[plans.watchlist_probe.tasks]]
+job_name = "srpe_refresh"
+source = "srpe"
+command = "srpe_refresh"
+language = "en"
+limit = 5
+with_details = false
+rotation_mode = "none"
