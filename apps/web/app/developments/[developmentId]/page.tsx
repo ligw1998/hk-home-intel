@@ -29,6 +29,24 @@ type TransactionSummary = {
   transaction_type: string;
 };
 
+type ListingFeedItem = {
+  id: string;
+  event_type: string;
+  event_at: string;
+  source: string;
+  development_id: string;
+  development_name: string | null;
+  development_source_url: string | null;
+  listing_id: string | null;
+  listing_title: string | null;
+  listing_source_url: string | null;
+  old_price_hkd: number | null;
+  new_price_hkd: number | null;
+  price_delta_hkd: number | null;
+  old_status: string | null;
+  new_status: string | null;
+};
+
 type DevelopmentDetail = {
   id: string;
   source_url: string | null;
@@ -64,6 +82,19 @@ async function fetchDevelopmentDetail(developmentId: string): Promise<Developmen
   return (await response.json()) as DevelopmentDetail;
 }
 
+async function fetchDevelopmentListingEvents(
+  developmentId: string,
+): Promise<ListingFeedItem[]> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/listings/feed?development_id=${developmentId}&limit=10`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    throw new Error(`listing feed HTTP ${response.status}`);
+  }
+  return (await response.json()) as ListingFeedItem[];
+}
+
 function formatPrice(amount: number | null): string {
   if (amount === null) {
     return "TBD";
@@ -75,13 +106,23 @@ function formatPrice(amount: number | null): string {
   }).format(amount);
 }
 
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("zh-HK", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 export default async function DevelopmentDetailPage({
   params,
 }: {
   params: Promise<{ developmentId: string }>;
 }) {
   const { developmentId } = await params;
-  const development = await fetchDevelopmentDetail(developmentId);
+  const [development, events] = await Promise.all([
+    fetchDevelopmentDetail(developmentId),
+    fetchDevelopmentListingEvents(developmentId),
+  ]);
   if (!development) {
     notFound();
   }
@@ -101,10 +142,11 @@ export default async function DevelopmentDetailPage({
           <Link href="/">Back to dashboard</Link>
           <Link href={`/map?selected=${development.id}`}>Open in map</Link>
           <Link href={`/activity?development_id=${development.id}`}>Recent activity</Link>
+          <Link href={`/listings?development_id=${development.id}`}>Listing event feed</Link>
           <Link href="/watchlist">Open watchlist</Link>
           {development.source_url ? (
             <a href={development.source_url} target="_blank" rel="noreferrer">
-              Open SRPE source
+              Open source page
             </a>
           ) : null}
         </div>
@@ -162,6 +204,35 @@ export default async function DevelopmentDetailPage({
             </ul>
           ) : (
             <p className="muted">No active listing rows imported for this development yet.</p>
+          )}
+        </article>
+
+        <article className="panel detail-span-2">
+          <h2>Recent Listing Events</h2>
+          {events.length > 0 ? (
+            <ul className="listing-event-list">
+              {events.map((item) => (
+                <li key={item.id} className="listing-event-item">
+                  <div className="listing-event-head">
+                    <strong>{item.listing_title ?? item.development_name ?? "Listing event"}</strong>
+                    <span className={`listing-event-badge listing-event-badge-${item.event_type}`}>
+                      {item.event_type}
+                    </span>
+                  </div>
+                  <span>
+                    {item.source} / {formatDateTime(item.event_at)}
+                  </span>
+                  <span>
+                    {formatPrice(item.old_price_hkd)} → {formatPrice(item.new_price_hkd)}
+                  </span>
+                  <span>
+                    {item.old_status ?? "new"} → {item.new_status ?? "unknown"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No listing events recorded for this development yet.</p>
           )}
         </article>
 

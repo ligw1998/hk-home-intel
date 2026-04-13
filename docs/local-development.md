@@ -209,6 +209,7 @@ npm run dev:web
 - Web: `http://127.0.0.1:3000`
 - API: `http://127.0.0.1:8000`
 - Activity view: `http://127.0.0.1:3000/activity`
+- Listing event feed: `http://127.0.0.1:3000/listings`
 - Map view: `http://127.0.0.1:3000/map`
 - System view: `http://127.0.0.1:3000/system`
 - Watchlist view: `http://127.0.0.1:3000/watchlist`

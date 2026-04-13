@@ -85,17 +85,18 @@ export default function HomePage() {
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 2</p>
+        <p className="eyebrow">Phase 3A</p>
         <h1>HK Home Intel</h1>
         <p className="lead">
           Local-first Hong Kong residential property research workspace. The
           current baseline already exposes the first official SRPE ingest path,
-          a real map workspace, a watchlist board, a system monitor, and a
-          recent activity feed for day-to-day review.
+          a real map workspace, a watchlist board, a system monitor, a recent
+          activity feed, and a commercial listing event feed for early change tracking.
         </p>
         <div className="hero-actions">
           <Link href="/map">Open map view</Link>
           <Link href="/activity">Open activity feed</Link>
+          <Link href="/listings">Open listing feed</Link>
           <Link href="/watchlist">Open watchlist</Link>
           <Link href="/system">Open system monitor</Link>
         </div>
@@ -136,13 +137,14 @@ export default function HomePage() {
         </article>
 
         <article className="panel">
-          <h2>Phase 2 Workspace</h2>
+          <h2>Phase 3A Workspace</h2>
           <ul className="bullet-list">
             <li>Core canonical development, document, listing, and transaction tables</li>
             <li>Official SRPE index and selected development detail import</li>
             <li>Coordinate-backed Leaflet map with watchlist overlay</li>
             <li>Recent activity feed across refresh runs, snapshots, and watchlist updates</li>
             <li>System monitor with UI-triggered refresh plans</li>
+            <li>Commercial listing event feed with canonical price events</li>
             <li>Three-language display fallback in the API layer</li>
           </ul>
         </article>

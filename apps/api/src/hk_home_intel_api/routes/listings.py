@@ -18,10 +18,13 @@ class ListingFeedItemResponse(BaseModel):
     source: str
     development_id: str
     development_name: str | None
+    development_source_url: str | None
     listing_id: str | None
     listing_title: str | None
+    listing_source_url: str | None
     old_price_hkd: float | None
     new_price_hkd: float | None
+    price_delta_hkd: float | None
     old_status: str | None
     new_status: str | None
 
@@ -50,10 +53,17 @@ def _serialize_event(item: PriceEvent, preferred_language: str, session: Session
         source=item.source,
         development_id=item.development_id,
         development_name=development_name,
+        development_source_url=development.source_url if development is not None else None,
         listing_id=item.listing_id,
         listing_title=listing_title,
+        listing_source_url=listing.source_url if listing is not None else None,
         old_price_hkd=float(item.old_price_hkd) if item.old_price_hkd is not None else None,
         new_price_hkd=float(item.new_price_hkd) if item.new_price_hkd is not None else None,
+        price_delta_hkd=(
+            float(item.new_price_hkd - item.old_price_hkd)
+            if item.old_price_hkd is not None and item.new_price_hkd is not None
+            else None
+        ),
         old_status=item.old_status,
         new_status=item.new_status,
     )
@@ -63,6 +73,8 @@ def _serialize_event(item: PriceEvent, preferred_language: str, session: Session
 def list_listing_feed(
     lang: str = Query(default="zh-Hant"),
     development_id: str | None = Query(default=None),
+    listing_id: str | None = Query(default=None),
+    source: str | None = Query(default=None),
     event_type: PriceEventType | None = Query(default=None),
     limit: int = Query(default=30, ge=1, le=100),
     session: Session = Depends(get_db_session),
@@ -70,6 +82,10 @@ def list_listing_feed(
     stmt = select(PriceEvent).order_by(PriceEvent.event_at.desc()).limit(limit)
     if development_id:
         stmt = stmt.where(PriceEvent.development_id == development_id)
+    if listing_id:
+        stmt = stmt.where(PriceEvent.listing_id == listing_id)
+    if source:
+        stmt = stmt.where(PriceEvent.source == source)
     if event_type:
         stmt = stmt.where(PriceEvent.event_type == event_type)
     items = session.scalars(stmt).all()

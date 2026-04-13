@@ -211,6 +211,56 @@ def test_run_scheduler_plan_endpoint_real_launch_does_not_500(isolated_app: Test
     assert payload["job_id"]
 
 
+def test_listings_feed_filters_by_source_and_includes_links(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            name_zh="測試屋苑",
+            district="Kowloon City",
+            region="Kowloon",
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            source_url="https://hk.centanet.com/example/dev",
+        )
+        session.add(development)
+        session.flush()
+
+        listing = Listing(
+            development_id=development.id,
+            source="centanet",
+            source_listing_id="MXL121",
+            source_url="https://hk.centanet.com/example/listing",
+            title="測試盤",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=8_700_000,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add(listing)
+        session.flush()
+
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.PRICE_DROP,
+                development_id=development.id,
+                listing_id=listing.id,
+                old_price_hkd=8_900_000,
+                new_price_hkd=8_700_000,
+                old_status="active",
+                new_status="active",
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/listings/feed?source=centanet&event_type=price_drop")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["development_source_url"] == "https://hk.centanet.com/example/dev"
+    assert payload[0]["listing_source_url"] == "https://hk.centanet.com/example/listing"
+    assert payload[0]["price_delta_hkd"] == -200000.0
+
+
 def test_scheduler_plan_override_update_and_reset(isolated_app: TestClient) -> None:
     update_response = isolated_app.patch(
         "/api/v1/system/scheduler-plans/daily_local",

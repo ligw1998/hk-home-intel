@@ -401,6 +401,66 @@ a:hover {
   line-height: 1.55;
 }
 
+.listing-event-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.listing-event-item {
+  display: grid;
+  gap: 6px;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(49, 44, 35, 0.08);
+}
+
+.listing-event-item span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.listing-event-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.listing-event-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.listing-event-badge-new_listing {
+  background: rgba(53, 124, 71, 0.12);
+  color: #295a34;
+}
+
+.listing-event-badge-price_drop {
+  background: rgba(33, 104, 161, 0.12);
+  color: #184d79;
+}
+
+.listing-event-badge-price_raise {
+  background: rgba(155, 93, 46, 0.12);
+  color: #8a4b20;
+}
+
+.listing-event-badge-relist,
+.listing-event-badge-status_change,
+.listing-event-badge-sold,
+.listing-event-badge-withdrawn {
+  background: rgba(49, 44, 35, 0.1);
+  color: var(--text);
+}
+
 .watchlist-box {
   display: grid;
   gap: 12px;
