@@ -315,6 +315,7 @@ class CentanetAdapter(SourceAdapter):
         )
         estate_name = self._extract_estate_name(headline or "", estate_url)
         development_external_id = estate_url.rsplit("/", 1)[-1] if estate_url else f"estate:{estate_name}"
+        lat, lng = self._extract_coordinates(html_text)
 
         title = self._clean_text(headline or estate_name or listing_code)
         development_name = self._clean_text(estate_name or title)
@@ -330,6 +331,8 @@ class CentanetAdapter(SourceAdapter):
             "feature_tags": [self._clean_text(tag) for tag in feature_tags if self._clean_text(tag)],
             "description": self._clean_text(description) if description else None,
             "estate_url": estate_url,
+            "lat": lat,
+            "lng": lng,
         }
 
         return {
@@ -359,8 +362,8 @@ class CentanetAdapter(SourceAdapter):
                 "address": address,
                 "district": None,
                 "region": None,
-                "lat": None,
-                "lng": None,
+                "lat": lat,
+                "lng": lng,
                 "developer_names": [part.strip() for part in (developer_name or "").split("/") if part.strip()],
             },
             "detail": raw_detail,
@@ -493,6 +496,32 @@ class CentanetAdapter(SourceAdapter):
     def _extract_info_num_value(self, html_text: str, label: str) -> str | None:
         pattern = rf"<p class=\"info-tag\"[^>]*>{re.escape(label)}</p>\s*<p[^>]*>(?P<value>[^<]+)</p>"
         return self._extract_first_match(html_text, pattern)
+
+    def _extract_coordinates(self, html_text: str) -> tuple[float | None, float | None]:
+        escaped_match = re.search(
+            r'https:\\u002F\\u002Fhk\.centanet\.com\\u002Ffindproperty\\u002Fdistrict\\u002F[^"]+",'
+            r'(?P<lat>22\.\d+),(?P<lng>11[34]\.\d+)',
+            html_text,
+        )
+        if escaped_match:
+            return float(escaped_match.group("lat")), float(escaped_match.group("lng"))
+
+        plain_match = re.search(
+            r'https://hk\.centanet\.com/findproperty/district/[^"]+",'
+            r'(?P<lat>22\.\d+),(?P<lng>11[34]\.\d+)',
+            html_text,
+        )
+        if plain_match:
+            return float(plain_match.group("lat")), float(plain_match.group("lng"))
+
+        object_match = re.search(
+            r'lat:\s*(?P<lat>22\.\d+)\s*,\s*lng:\s*(?P<lng>11[34]\.\d+)',
+            html_text,
+        )
+        if object_match:
+            return float(object_match.group("lat")), float(object_match.group("lng"))
+
+        return None, None
 
     def _extract_first_match(self, html_text: str, pattern: str, group: str = "value") -> str | None:
         match = re.search(pattern, html_text, re.S)

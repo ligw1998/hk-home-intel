@@ -109,6 +109,26 @@ a:hover {
   align-items: flex-start;
 }
 
+.development-detail-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 20px;
+  align-items: flex-start;
+}
+
+.development-sidebar {
+  display: grid;
+  gap: 18px;
+  position: sticky;
+  top: 24px;
+}
+
+.development-main-stack {
+  display: grid;
+  gap: 18px;
+}
+
 .map-layout {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr) 320px;
@@ -234,6 +254,11 @@ a:hover {
   align-items: center;
   gap: 10px;
   margin: 6px 0 14px;
+}
+
+.checkbox-stack {
+  display: grid;
+  gap: 2px;
 }
 
 .checkbox-field input {
@@ -668,8 +693,53 @@ a:hover {
   background: rgba(255, 252, 245, 0.6);
 }
 
+.preset-list {
+  display: grid;
+  gap: 12px;
+}
+
+.preset-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 252, 245, 0.6);
+}
+
+.preset-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.compact-listing-history {
+  max-height: 24rem;
+  overflow: auto;
+}
+
+.timeline-day-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.timeline-day-group {
+  display: grid;
+  gap: 12px;
+}
+
+.timeline-day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(49, 44, 35, 0.08);
+  color: var(--muted);
+}
+
 @media (max-width: 980px) {
   .grid,
+  .development-detail-layout,
   .activity-layout,
   .map-layout {
     grid-template-columns: 1fr;
@@ -680,7 +750,8 @@ a:hover {
   }
 
   .filter-panel,
-  .detail-panel {
+  .detail-panel,
+  .development-sidebar {
     position: static;
   }
 }
@@ -709,6 +780,10 @@ a:hover {
     grid-template-columns: 1fr;
   }
 
+  .development-detail-layout {
+    grid-template-columns: 1fr;
+  }
+
   .map-layout {
     grid-template-columns: 1fr;
   }
@@ -722,7 +797,8 @@ a:hover {
   }
 
   .filter-panel,
-  .detail-panel {
+  .detail-panel,
+  .development-sidebar {
     position: static;
   }
 

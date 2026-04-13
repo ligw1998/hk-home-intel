@@ -45,6 +45,25 @@ type ListingEvent = {
   listing_title: string | null;
 };
 
+type ListingPricePoint = {
+  event_id: string | null;
+  event_type: string;
+  recorded_at: string;
+  price_hkd: number;
+};
+
+type ListingPriceHistory = {
+  listing_id: string;
+  current_price_hkd: number | null;
+  previous_price_hkd: number | null;
+  lowest_price_hkd: number | null;
+  highest_price_hkd: number | null;
+  point_count: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  points: ListingPricePoint[];
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 function formatPrice(amount: number | null): string {
@@ -73,6 +92,7 @@ export default function ListingDetailPage() {
   const listingId = params.listingId ?? null;
   const [detail, setDetail] = useState<ListingDetail | null>(null);
   const [events, setEvents] = useState<ListingEvent[]>([]);
+  const [priceHistory, setPriceHistory] = useState<ListingPriceHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,9 +105,10 @@ export default function ListingDetailPage() {
     async function load() {
       try {
         setLoading(true);
-        const [detailResponse, eventsResponse] = await Promise.all([
+        const [detailResponse, eventsResponse, priceHistoryResponse] = await Promise.all([
           fetch(`${API_BASE}/api/v1/listings/${listingId}?lang=zh-Hant`),
           fetch(`${API_BASE}/api/v1/listings/${listingId}/events?lang=zh-Hant`),
+          fetch(`${API_BASE}/api/v1/listings/${listingId}/price-history`),
         ]);
         if (!detailResponse.ok) {
           throw new Error(`listing detail HTTP ${detailResponse.status}`);
@@ -95,11 +116,16 @@ export default function ListingDetailPage() {
         if (!eventsResponse.ok) {
           throw new Error(`listing events HTTP ${eventsResponse.status}`);
         }
+        if (!priceHistoryResponse.ok) {
+          throw new Error(`listing price history HTTP ${priceHistoryResponse.status}`);
+        }
         const detailPayload = (await detailResponse.json()) as ListingDetail;
         const eventsPayload = (await eventsResponse.json()) as ListingEvent[];
+        const priceHistoryPayload = (await priceHistoryResponse.json()) as ListingPriceHistory;
         if (!cancelled) {
           setDetail(detailPayload);
           setEvents(eventsPayload);
+          setPriceHistory(priceHistoryPayload);
           setError(null);
         }
       } catch (err) {
@@ -189,8 +215,47 @@ export default function ListingDetailPage() {
             ) : null}
           </article>
 
+          <article className="panel">
+            <h2>Price History</h2>
+            {priceHistory ? (
+              <>
+                <dl className="kv-list compact-kv-list">
+                  <div><dt>Current</dt><dd>{formatPrice(priceHistory.current_price_hkd)}</dd></div>
+                  <div><dt>Previous</dt><dd>{formatPrice(priceHistory.previous_price_hkd)}</dd></div>
+                  <div><dt>Lowest</dt><dd>{formatPrice(priceHistory.lowest_price_hkd)}</dd></div>
+                  <div><dt>Highest</dt><dd>{formatPrice(priceHistory.highest_price_hkd)}</dd></div>
+                  <div><dt>Points</dt><dd>{priceHistory.point_count}</dd></div>
+                  <div><dt>First seen</dt><dd>{formatDateTime(priceHistory.first_seen_at)}</dd></div>
+                  <div><dt>Last seen</dt><dd>{formatDateTime(priceHistory.last_seen_at)}</dd></div>
+                </dl>
+                {priceHistory.points.length > 0 ? (
+                  <ul className="listing-event-list compact-listing-history">
+                    {priceHistory.points
+                      .slice()
+                      .reverse()
+                      .map((point) => (
+                        <li key={point.event_id ?? `${point.event_type}-${point.recorded_at}`} className="listing-event-item">
+                          <div className="listing-event-head">
+                            <strong>{formatPrice(point.price_hkd)}</strong>
+                            <span className={`listing-event-badge listing-event-badge-${point.event_type}`}>
+                              {formatEventType(point.event_type)}
+                            </span>
+                          </div>
+                          <span>{formatDateTime(point.recorded_at)}</span>
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <p className="muted">No price history points recorded yet.</p>
+                )}
+              </>
+            ) : (
+              <p className="muted">Price history unavailable.</p>
+            )}
+          </article>
+
           <article className="panel detail-span-2">
-            <h2>Recent Events</h2>
+            <h2>Timeline</h2>
             {events.length > 0 ? (
               <ul className="listing-event-list">
                 {events.map((item) => (

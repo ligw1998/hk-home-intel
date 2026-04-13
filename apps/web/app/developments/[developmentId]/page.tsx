@@ -62,6 +62,12 @@ type DevelopmentDetail = {
   lat: number | null;
   lng: number | null;
   active_listing_count: number;
+  active_listing_min_price_hkd: number | null;
+  active_listing_max_price_hkd: number | null;
+  active_listing_bedroom_options: number[];
+  active_listing_bedroom_mix: Record<string, number>;
+  active_listing_source_counts: Record<string, number>;
+  latest_listing_event_at: string | null;
   document_count: number;
   transaction_count: number;
   listings: ListingSummary[];
@@ -88,7 +94,7 @@ async function fetchDevelopmentListingEvents(
   developmentId: string,
 ): Promise<ListingFeedItem[]> {
   const response = await fetch(
-    `${API_BASE}/api/v1/listings/feed?development_id=${developmentId}&limit=10`,
+    `${API_BASE}/api/v1/listings/feed?development_id=${developmentId}&limit=30`,
     { cache: "no-store" },
   );
   if (!response.ok) {
@@ -113,6 +119,86 @@ function formatDateTime(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatDayLabel(value: string): string {
+  return new Intl.DateTimeFormat("zh-HK", {
+    dateStyle: "full",
+  }).format(new Date(value));
+}
+
+function formatCompactDateTime(value: string | null): string {
+  if (!value) {
+    return "TBD";
+  }
+  return new Intl.DateTimeFormat("zh-HK", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function formatBedroomMix(mix: Record<string, number>): string {
+  const knownCount = Object.values(mix).reduce((sum, count) => sum + count, 0);
+  const parts = Object.entries(mix)
+    .sort(([left], [right]) => Number(left) - Number(right))
+    .map(([bedrooms, count]) => {
+      if (bedrooms === "0") {
+        return `開放式 × ${count}`;
+      }
+      return `${bedrooms}房 × ${count}`;
+    });
+  return parts.length > 0 ? parts.join(" / ") : "No bedroom signal yet";
+}
+
+function formatBedroomCoverage(mix: Record<string, number>, total: number): string {
+  const knownCount = Object.values(mix).reduce((sum, count) => sum + count, 0);
+  const unknownCount = Math.max(0, total - knownCount);
+  if (total === 0) {
+    return "No active listings";
+  }
+  if (unknownCount === 0) {
+    return `All ${total} listings carry bedroom data`;
+  }
+  return `${knownCount} / ${total} listings carry bedroom data, ${unknownCount} still unknown`;
+}
+
+function formatSourceMix(mix: Record<string, number>): string {
+  const parts = Object.entries(mix)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([source, count]) => `${source} × ${count}`);
+  return parts.length > 0 ? parts.join(" / ") : "No active source rows";
+}
+
+function summarizeEvents(items: ListingFeedItem[]): Array<{ label: string; value: number }> {
+  const total = items.length;
+  const newListings = items.filter((item) => item.event_type === "new_listing").length;
+  const priceMoves = items.filter(
+    (item) => item.event_type === "price_drop" || item.event_type === "price_raise",
+  ).length;
+  const statusMoves = items.filter(
+    (item) => item.event_type === "withdrawn" || item.event_type === "relist" || item.event_type === "sold",
+  ).length;
+  return [
+    { label: "Events", value: total },
+    { label: "New listings", value: newListings },
+    { label: "Price moves", value: priceMoves },
+    { label: "Status moves", value: statusMoves },
+  ];
+}
+
+function groupEventsByDay(items: ListingFeedItem[]): Array<{ dateKey: string; label: string; items: ListingFeedItem[] }> {
+  const grouped = new Map<string, ListingFeedItem[]>();
+  for (const item of items) {
+    const key = item.event_at.slice(0, 10);
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(item);
+    grouped.set(key, bucket);
+  }
+  return Array.from(grouped.entries()).map(([dateKey, dayItems]) => ({
+    dateKey,
+    label: formatDayLabel(dayItems[0].event_at),
+    items: dayItems,
+  }));
 }
 
 export default async function DevelopmentDetailPage({
@@ -154,42 +240,75 @@ export default async function DevelopmentDetailPage({
         </div>
       </section>
 
-      <section className="grid detail-grid">
-        <article className="panel">
-          <h2>Summary</h2>
-          <WatchlistButton developmentId={development.id} />
-          <dl className="kv-list">
-            <div>
-              <dt>Completion</dt>
-              <dd>{development.completion_year ?? "TBD"}</dd>
-            </div>
-            <div>
-              <dt>Source Confidence</dt>
-              <dd>{development.source_confidence}</dd>
-            </div>
-            <div>
-              <dt>Active Listings</dt>
-              <dd>{development.active_listing_count}</dd>
-            </div>
-            <div>
-              <dt>Documents</dt>
-              <dd>{development.document_count}</dd>
-            </div>
-            <div>
-              <dt>Transactions</dt>
-              <dd>{development.transaction_count}</dd>
-            </div>
-            <div>
-              <dt>Coordinates</dt>
-              <dd>
-                {development.lat !== null && development.lng !== null
-                  ? `${development.lat.toFixed(5)}, ${development.lng.toFixed(5)}`
-                  : "Pending geocode"}
-              </dd>
-            </div>
-          </dl>
-        </article>
+      <section className="development-detail-layout">
+        <aside className="development-sidebar">
+          <article className="panel">
+            <h2>Summary</h2>
+            <WatchlistButton developmentId={development.id} />
+            <dl className="kv-list">
+              <div>
+                <dt>Completion</dt>
+                <dd>{development.completion_year ?? "TBD"}</dd>
+              </div>
+              <div>
+                <dt>Source Confidence</dt>
+                <dd>{development.source_confidence}</dd>
+              </div>
+              <div>
+                <dt>Active Listings</dt>
+                <dd>{development.active_listing_count}</dd>
+              </div>
+              <div>
+                <dt>Documents</dt>
+                <dd>{development.document_count}</dd>
+              </div>
+              <div>
+                <dt>Transactions</dt>
+                <dd>{development.transaction_count}</dd>
+              </div>
+              <div>
+                <dt>Coordinates</dt>
+                <dd>
+                  {development.lat !== null && development.lng !== null
+                    ? `${development.lat.toFixed(5)}, ${development.lng.toFixed(5)}`
+                    : "Pending geocode"}
+                </dd>
+              </div>
+            </dl>
+          </article>
 
+          <article className="panel">
+            <h2>Current Market Snapshot</h2>
+            <dl className="kv-list">
+              <div>
+                <dt>Price Band</dt>
+                <dd>
+                  {development.active_listing_count > 0
+                    ? `${formatPrice(development.active_listing_min_price_hkd)} → ${formatPrice(development.active_listing_max_price_hkd)}`
+                    : "No active price rows yet"}
+                </dd>
+              </div>
+              <div>
+                <dt>Bedroom Mix</dt>
+                <dd>{formatBedroomMix(development.active_listing_bedroom_mix)}</dd>
+              </div>
+              <div>
+                <dt>Bedroom Coverage</dt>
+                <dd>{formatBedroomCoverage(development.active_listing_bedroom_mix, development.active_listing_count)}</dd>
+              </div>
+              <div>
+                <dt>Source Mix</dt>
+                <dd>{formatSourceMix(development.active_listing_source_counts)}</dd>
+              </div>
+              <div>
+                <dt>Latest Listing Event</dt>
+                <dd>{formatCompactDateTime(development.latest_listing_event_at)}</dd>
+              </div>
+            </dl>
+          </article>
+        </aside>
+
+        <div className="development-main-stack">
         <article className="panel">
           <h2>Listings</h2>
           {development.listings.length > 0 ? (
@@ -198,7 +317,7 @@ export default async function DevelopmentDetailPage({
                 <li key={item.id}>
                   <strong>{item.display_title ?? "Untitled listing"}</strong>
                   <span>
-                    {item.listing_type.replaceAll("_", " ")} / {item.status}
+                    {item.listing_type.replaceAll("_", " ")} / {formatListingStatus(item.status)}
                   </span>
                   <span>{formatPrice(item.asking_price_hkd)}</span>
                 </li>
@@ -209,44 +328,64 @@ export default async function DevelopmentDetailPage({
           )}
         </article>
 
-        <article className="panel detail-span-2">
-          <h2>Recent Listing Events</h2>
+        <article className="panel">
+          <h2>Listing Timeline</h2>
           {events.length > 0 ? (
-            <ul className="listing-event-list">
-              {events.map((item) => (
-                <li key={item.id} className="listing-event-item">
-                  <div className="listing-event-head">
-                    <strong>{item.listing_title ?? item.development_name ?? "Listing event"}</strong>
-                    <span className={`listing-event-badge listing-event-badge-${item.event_type}`}>
-                      {formatEventType(item.event_type)}
-                    </span>
-                  </div>
-                  <span>
-                    {item.source} / {formatDateTime(item.event_at)}
-                  </span>
-                  <span>
-                    {formatPrice(item.old_price_hkd)} → {formatPrice(item.new_price_hkd)}
-                  </span>
-                  <span>
-                    {formatListingStatus(item.old_status ?? "new")} → {formatListingStatus(item.new_status)}
-                  </span>
-                  <div className="hero-actions">
-                    {item.listing_id ? <Link href={`/listings/${item.listing_id}`}>Open listing detail</Link> : null}
-                    {item.listing_source_url ? (
-                      <a href={item.listing_source_url} target="_blank" rel="noreferrer">
-                        Open source listing
-                      </a>
-                    ) : null}
-                  </div>
-                </li>
+            <div className="listing-feed-stats">
+              {summarizeEvents(events).map((item) => (
+                <div key={item.label} className="listing-feed-stat">
+                  <strong>{item.value}</strong>
+                  <span>{item.label}</span>
+                </div>
               ))}
-            </ul>
+            </div>
+          ) : null}
+          {events.length > 0 ? (
+            <div className="timeline-day-groups">
+              {groupEventsByDay(events).map((group) => (
+                <section key={group.dateKey} className="timeline-day-group">
+                  <div className="timeline-day-header">
+                    <strong>{group.label}</strong>
+                    <span>{group.items.length} events</span>
+                  </div>
+                  <ul className="listing-event-list">
+                    {group.items.map((item) => (
+                      <li key={item.id} className="listing-event-item">
+                        <div className="listing-event-head">
+                          <strong>{item.listing_title ?? item.development_name ?? "Listing event"}</strong>
+                          <span className={`listing-event-badge listing-event-badge-${item.event_type}`}>
+                            {formatEventType(item.event_type)}
+                          </span>
+                        </div>
+                        <span>
+                          {item.source} / {formatDateTime(item.event_at)}
+                        </span>
+                        <span>
+                          {formatPrice(item.old_price_hkd)} → {formatPrice(item.new_price_hkd)}
+                        </span>
+                        <span>
+                          {formatListingStatus(item.old_status ?? "new")} → {formatListingStatus(item.new_status)}
+                        </span>
+                        <div className="hero-actions">
+                          {item.listing_id ? <Link href={`/listings/${item.listing_id}`}>Open listing detail</Link> : null}
+                          {item.listing_source_url ? (
+                            <a href={item.listing_source_url} target="_blank" rel="noreferrer">
+                              Open source listing
+                            </a>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
           ) : (
             <p className="muted">No listing events recorded for this development yet.</p>
           )}
         </article>
 
-        <article className="panel detail-span-2">
+        <article className="panel">
           <h2>Documents</h2>
           {development.documents.length > 0 ? (
             <ul className="development-list">
@@ -269,7 +408,7 @@ export default async function DevelopmentDetailPage({
           )}
         </article>
 
-        <article className="panel detail-span-2">
+        <article className="panel">
           <h2>Transactions</h2>
           {development.transactions.length > 0 ? (
             <ul className="development-list">
@@ -285,6 +424,7 @@ export default async function DevelopmentDetailPage({
             <p className="muted">No transaction rows imported yet.</p>
           )}
         </article>
+        </div>
       </section>
     </main>
   );

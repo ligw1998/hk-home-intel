@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -13,7 +14,7 @@ from hk_home_intel_domain.ingestion import (
     import_srpe_all_developments,
     import_srpe_sample,
 )
-from hk_home_intel_domain.models import Listing, PriceEvent, SourceSnapshot
+from hk_home_intel_domain.models import Development, Listing, PriceEvent, SourceSnapshot
 from hk_home_intel_shared.db import get_engine, get_session_factory, reset_db_caches
 from hk_home_intel_shared.models.base import Base
 from hk_home_intel_shared.settings import clear_settings_cache
@@ -719,11 +720,15 @@ def test_import_centanet_search_with_details_enriches_listing_fields(tmp_path: P
                 Listing.source_listing_id == "MXL121",
             )
         )
+        assert listing is not None
+        development = session.get(Development, listing.development_id)
 
     assert summary.listings_upserted == 2
     assert summary.price_events_created == 1
-    assert listing is not None
+    assert development is not None
     assert (listing.raw_payload_json or {}).get("detail", {}).get("address") == "深旺道28號"
+    assert development.lat == pytest.approx(22.328173)
+    assert development.lng == pytest.approx(114.152525)
     assert listing.last_seen_at is not None
 
     engine.dispose()
@@ -832,13 +837,17 @@ def test_backfill_centanet_listing_details_enriches_existing_search_rows(tmp_pat
                 Listing.source_listing_id == "MXL121",
             )
         )
+        assert listing is not None
+        development = session.get(Development, listing.development_id)
 
     assert summary.scanned == 1
     assert summary.enriched == 1
     assert summary.failed == 0
-    assert listing is not None
+    assert development is not None
     assert listing.last_seen_at is not None
     assert (listing.raw_payload_json or {}).get("detail", {}).get("address") == "深旺道28號"
+    assert development.lat == pytest.approx(22.328173)
+    assert development.lng == pytest.approx(114.152525)
 
     engine.dispose()
     clear_settings_cache()

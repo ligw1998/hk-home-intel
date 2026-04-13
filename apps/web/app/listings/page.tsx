@@ -44,6 +44,12 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
+function formatDayLabel(value: string): string {
+  return new Intl.DateTimeFormat("zh-HK", {
+    dateStyle: "full",
+  }).format(new Date(value));
+}
+
 function ListingFeedPageContent() {
   const searchParams = useSearchParams();
   const [items, setItems] = useState<ListingFeedItem[]>([]);
@@ -51,6 +57,7 @@ function ListingFeedPageContent() {
   const [eventType, setEventType] = useState(searchParams.get("event_type") ?? "all");
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [changesOnly, setChangesOnly] = useState(searchParams.get("changes_only") === "true");
+  const [windowDays, setWindowDays] = useState(searchParams.get("days") ?? "30");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +85,9 @@ function ListingFeedPageContent() {
         if (changesOnly) {
           params.set("changes_only", "true");
         }
+        if (windowDays !== "all") {
+          params.set("days", windowDays);
+        }
         const response = await fetch(`${API_BASE}/api/v1/listings/feed?${params.toString()}`);
         if (!response.ok) {
           throw new Error(`listings feed HTTP ${response.status}`);
@@ -102,7 +112,7 @@ function ListingFeedPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [changesOnly, developmentId, eventType, search, source]);
+  }, [changesOnly, developmentId, eventType, search, source, windowDays]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -124,17 +134,32 @@ function ListingFeedPageContent() {
 
   const newListingCount = filteredItems.filter((item) => item.event_type === "new_listing").length;
   const priceDropCount = filteredItems.filter((item) => item.event_type === "price_drop").length;
+  const priceRaiseCount = filteredItems.filter((item) => item.event_type === "price_raise").length;
   const withdrawnCount = filteredItems.filter((item) => item.event_type === "withdrawn").length;
   const relistCount = filteredItems.filter((item) => item.event_type === "relist").length;
+  const groupedItems = useMemo(() => {
+    const grouped = new Map<string, ListingFeedItem[]>();
+    for (const item of filteredItems) {
+      const key = item.event_at.slice(0, 10);
+      const bucket = grouped.get(key) ?? [];
+      bucket.push(item);
+      grouped.set(key, bucket);
+    }
+    return Array.from(grouped.entries()).map(([dateKey, dayItems]) => ({
+      dateKey,
+      label: formatDayLabel(dayItems[0].event_at),
+      items: dayItems,
+    }));
+  }, [filteredItems]);
 
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 3A</p>
-        <h1>Listing Event Feed</h1>
+        <p className="eyebrow">Phase 3B</p>
+        <h1>Daily Listing Review</h1>
         <p className="lead">
-          Review recent commercial listing events before they are folded into the fuller comparison
-          and monitoring workspace.
+          Review commercial listing changes in a daily workflow: narrow the time window, scan price
+          and status moves, then jump into the affected development or source listing.
         </p>
         <div className="hero-actions">
           <Link href="/">Back to dashboard</Link>
@@ -161,6 +186,15 @@ function ListingFeedPageContent() {
               <option value="all">all</option>
               <option value="centanet">centanet</option>
               <option value="ricacorp">ricacorp</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Window</span>
+            <select value={windowDays} onChange={(event) => setWindowDays(event.target.value)}>
+              <option value="1">last 24h</option>
+              <option value="7">last 7d</option>
+              <option value="30">last 30d</option>
+              <option value="all">all</option>
             </select>
           </label>
           <label className="field">
@@ -198,6 +232,10 @@ function ListingFeedPageContent() {
               <dd>{priceDropCount}</dd>
             </div>
             <div>
+              <dt>Price raises</dt>
+              <dd>{priceRaiseCount}</dd>
+            </div>
+            <div>
               <dt>Withdrawn</dt>
               <dd>{withdrawnCount}</dd>
             </div>
@@ -227,8 +265,8 @@ function ListingFeedPageContent() {
               <span>New listings</span>
             </div>
             <div className="listing-feed-stat">
-              <strong>{priceDropCount}</strong>
-              <span>Price drops</span>
+              <strong>{priceDropCount + priceRaiseCount}</strong>
+              <span>Price moves</span>
             </div>
             <div className="listing-feed-stat">
               <strong>{withdrawnCount + relistCount}</strong>
@@ -241,40 +279,50 @@ function ListingFeedPageContent() {
           ) : error ? (
             <p className="muted">Listing feed unavailable: {error}</p>
           ) : filteredItems.length > 0 ? (
-            <ul className="listing-event-list">
-              {filteredItems.map((item) => (
-                <li key={item.id} className="listing-event-item">
-                  <div className="listing-event-head">
-                    <strong>{item.listing_title ?? item.development_name ?? "Listing event"}</strong>
-                    <span className={`listing-event-badge listing-event-badge-${item.event_type}`}>
-                      {formatEventType(item.event_type)}
-                    </span>
+            <div className="timeline-day-groups">
+              {groupedItems.map((group) => (
+                <section key={group.dateKey} className="timeline-day-group">
+                  <div className="timeline-day-header">
+                    <strong>{group.label}</strong>
+                    <span>{group.items.length} events</span>
                   </div>
-                  <span>
-                    {item.source} / {formatDateTime(item.event_at)}
-                  </span>
-                  <span>
-                    {item.development_name ?? "Unknown development"}
-                  </span>
-                  <span>
-                    {formatPrice(item.old_price_hkd)} → {formatPrice(item.new_price_hkd)}
-                    {item.price_delta_hkd !== null ? ` (${formatPrice(item.price_delta_hkd)})` : ""}
-                  </span>
-                  <span>
-                    {formatListingStatus(item.old_status ?? "new")} → {formatListingStatus(item.new_status)}
-                  </span>
-                  <div className="hero-actions">
-                    <Link href={`/developments/${item.development_id}`}>Open development</Link>
-                    {item.listing_id ? <Link href={`/listings/${item.listing_id}`}>Open listing detail</Link> : null}
-                    {item.listing_source_url ? (
-                      <a href={item.listing_source_url} target="_blank" rel="noreferrer">
-                        Open source listing
-                      </a>
-                    ) : null}
-                  </div>
-                </li>
+                  <ul className="listing-event-list">
+                    {group.items.map((item) => (
+                      <li key={item.id} className="listing-event-item">
+                        <div className="listing-event-head">
+                          <strong>{item.listing_title ?? item.development_name ?? "Listing event"}</strong>
+                          <span className={`listing-event-badge listing-event-badge-${item.event_type}`}>
+                            {formatEventType(item.event_type)}
+                          </span>
+                        </div>
+                        <span>
+                          {item.source} / {formatDateTime(item.event_at)}
+                        </span>
+                        <span>
+                          {item.development_name ?? "Unknown development"}
+                        </span>
+                        <span>
+                          {formatPrice(item.old_price_hkd)} → {formatPrice(item.new_price_hkd)}
+                          {item.price_delta_hkd !== null ? ` (${formatPrice(item.price_delta_hkd)})` : ""}
+                        </span>
+                        <span>
+                          {formatListingStatus(item.old_status ?? "new")} → {formatListingStatus(item.new_status)}
+                        </span>
+                        <div className="hero-actions">
+                          <Link href={`/developments/${item.development_id}`}>Open development</Link>
+                          {item.listing_id ? <Link href={`/listings/${item.listing_id}`}>Open listing detail</Link> : null}
+                          {item.listing_source_url ? (
+                            <a href={item.listing_source_url} target="_blank" rel="noreferrer">
+                              Open source listing
+                            </a>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               ))}
-            </ul>
+            </div>
           ) : (
             <p className="muted">No listing events matched the current filter.</p>
           )}

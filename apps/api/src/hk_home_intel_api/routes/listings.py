@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import or_, select
@@ -55,6 +57,25 @@ class ListingDetailResponse(BaseModel):
     feature_tags: list[str]
     description: str | None
     developer_names: list[str]
+
+
+class ListingPricePointResponse(BaseModel):
+    event_id: str | None
+    event_type: str
+    recorded_at: str
+    price_hkd: float
+
+
+class ListingPriceHistoryResponse(BaseModel):
+    listing_id: str
+    current_price_hkd: float | None
+    previous_price_hkd: float | None
+    lowest_price_hkd: float | None
+    highest_price_hkd: float | None
+    point_count: int
+    first_seen_at: str | None
+    last_seen_at: str | None
+    points: list[ListingPricePointResponse]
 
 
 def _serialize_event(item: PriceEvent, preferred_language: str, session: Session) -> ListingFeedItemResponse:
@@ -141,6 +162,51 @@ def _serialize_listing_detail(item: Listing, preferred_language: str, session: S
     )
 
 
+def _build_listing_price_history(item: Listing, session: Session) -> ListingPriceHistoryResponse:
+    events = session.scalars(
+        select(PriceEvent)
+        .where(PriceEvent.listing_id == item.id)
+        .order_by(PriceEvent.event_at.asc(), PriceEvent.created_at.asc())
+    ).all()
+
+    points: list[ListingPricePointResponse] = []
+    for event in events:
+        if event.new_price_hkd is None:
+            continue
+        points.append(
+            ListingPricePointResponse(
+                event_id=event.id,
+                event_type=event.event_type.value,
+                recorded_at=event.event_at.isoformat(),
+                price_hkd=float(event.new_price_hkd),
+            )
+        )
+
+    if not points and item.asking_price_hkd is not None:
+        recorded_at = item.last_seen_at or item.updated_at or item.created_at
+        points.append(
+            ListingPricePointResponse(
+                event_id=None,
+                event_type="current_snapshot",
+                recorded_at=recorded_at.isoformat(),
+                price_hkd=float(item.asking_price_hkd),
+            )
+        )
+
+    prices = [point.price_hkd for point in points]
+    return ListingPriceHistoryResponse(
+        listing_id=item.id,
+        current_price_hkd=float(item.asking_price_hkd) if item.asking_price_hkd is not None else None,
+        previous_price_hkd=points[-2].price_hkd if len(points) >= 2 else None,
+        lowest_price_hkd=min(prices) if prices else None,
+        highest_price_hkd=max(prices) if prices else None,
+        point_count=len(points),
+        first_seen_at=item.first_seen_at.isoformat() if item.first_seen_at is not None else None,
+        last_seen_at=item.last_seen_at.isoformat() if item.last_seen_at is not None else None,
+        points=points,
+    )
+
+
 @router.get("/feed", response_model=list[ListingFeedItemResponse])
 def list_listing_feed(
     lang: str = Query(default="zh-Hant"),
@@ -150,6 +216,7 @@ def list_listing_feed(
     event_type: PriceEventType | None = Query(default=None),
     q: str | None = Query(default=None),
     changes_only: bool = Query(default=False),
+    days: int | None = Query(default=None, ge=1, le=365),
     limit: int = Query(default=30, ge=1, le=100),
     session: Session = Depends(get_db_session),
 ) -> list[ListingFeedItemResponse]:
@@ -168,6 +235,9 @@ def list_listing_feed(
         stmt = stmt.where(PriceEvent.event_type == event_type)
     if changes_only:
         stmt = stmt.where(PriceEvent.event_type != PriceEventType.NEW_LISTING)
+    if days is not None:
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        stmt = stmt.where(PriceEvent.event_at >= cutoff)
     if q:
         pattern = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -211,3 +281,14 @@ def get_listing_detail(
     if listing is None:
         raise HTTPException(status_code=404, detail="listing not found")
     return _serialize_listing_detail(listing, lang, session)
+
+
+@router.get("/{listing_id}/price-history", response_model=ListingPriceHistoryResponse)
+def get_listing_price_history(
+    listing_id: str,
+    session: Session = Depends(get_db_session),
+) -> ListingPriceHistoryResponse:
+    listing = session.get(Listing, listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="listing not found")
+    return _build_listing_price_history(listing, session)

@@ -14,6 +14,8 @@ export function formatEventType(eventType: string): string {
       return "Withdrawn";
     case "status_change":
       return "Status change";
+    case "current_snapshot":
+      return "Current snapshot";
     default:
       return eventType.replaceAll("_", " ");
   }

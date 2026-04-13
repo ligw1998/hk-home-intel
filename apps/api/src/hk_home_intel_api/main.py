@@ -6,6 +6,7 @@ from hk_home_intel_api.routes.activity import router as activity_router
 from hk_home_intel_api.routes.developments import router as developments_router
 from hk_home_intel_api.routes.health import router as health_router
 from hk_home_intel_api.routes.listings import router as listings_router
+from hk_home_intel_api.routes.search_presets import router as search_presets_router
 from hk_home_intel_api.routes.system import router as system_router
 from hk_home_intel_api.routes.watchlist import router as watchlist_router
 from hk_home_intel_shared.settings import get_settings
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(activity_router, prefix=settings.api_v1_prefix)
     app.include_router(developments_router, prefix=settings.api_v1_prefix)
     app.include_router(listings_router, prefix=settings.api_v1_prefix)
+    app.include_router(search_presets_router, prefix=settings.api_v1_prefix)
     app.include_router(system_router, prefix=settings.api_v1_prefix)
     app.include_router(watchlist_router, prefix=settings.api_v1_prefix)
 

@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ from hk_home_intel_domain.enums import (
     SourceConfidence,
     WatchlistStage,
 )
-from hk_home_intel_domain.models import Development, Listing, PriceEvent, RefreshJobRun, SourceSnapshot, WatchlistItem
+from hk_home_intel_domain.models import Development, Listing, PriceEvent, RefreshJobRun, SearchPreset, SourceSnapshot, WatchlistItem
 from hk_home_intel_shared.db import get_engine, get_session_factory, reset_db_caches
 from hk_home_intel_shared.models.base import Base
 from hk_home_intel_shared.settings import clear_settings_cache
@@ -73,6 +74,8 @@ def test_list_developments_returns_seeded_rows(isolated_app: TestClient, tmp_pat
     with session_factory() as session:
         session.add(
             Development(
+                source="srpe",
+                source_external_id="seed-dev-1",
                 name_zh="测试楼盘",
                 name_en="Test Development",
                 district="Hong Kong East",
@@ -89,6 +92,184 @@ def test_list_developments_returns_seeded_rows(isolated_app: TestClient, tmp_pat
     payload = response.json()
     assert payload["total"] == 1
     assert payload["items"][0]["name_zh"] == "测试楼盘"
+
+
+def test_list_developments_excludes_rows_without_source(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        session.add(
+            Development(
+                source=None,
+                name_zh="历史残留盘",
+                district="Hong Kong East",
+                region="Hong Kong Island",
+                listing_segment=ListingSegment.NEW,
+                source_confidence=SourceConfidence.HIGH,
+            )
+        )
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="live-dev-1",
+                name_zh="Live 盘",
+                district="Hong Kong East",
+                region="Hong Kong Island",
+                listing_segment=ListingSegment.NEW,
+                source_confidence=SourceConfidence.HIGH,
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/developments")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["name_zh"] == "Live 盘"
+
+
+def test_list_developments_supports_preference_filters(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        preferred = Development(
+            source="centanet",
+            source_external_id="pref-dev-1",
+            name_zh="優先測試盤",
+            district="Kai Tak",
+            region="Kowloon",
+            completion_year=2022,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            lat=22.3,
+            lng=114.2,
+        )
+        expensive = Development(
+            source="srpe",
+            source_external_id="exp-dev-1",
+            name_zh="超預算測試盤",
+            district="Kai Tak",
+            region="Kowloon",
+            completion_year=2024,
+            listing_segment=ListingSegment.FIRST_HAND_REMAINING,
+            source_confidence=SourceConfidence.HIGH,
+            lat=22.31,
+            lng=114.21,
+        )
+        old_stock = Development(
+            source="centanet",
+            source_external_id="old-dev-1",
+            name_zh="樓齡過高測試盤",
+            district="Tseung Kwan O",
+            region="New Territories",
+            completion_year=2001,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            lat=22.32,
+            lng=114.22,
+        )
+        session.add_all([preferred, expensive, old_stock])
+        session.flush()
+        session.add_all(
+            [
+                Listing(
+                    development_id=preferred.id,
+                    source="centanet",
+                    source_listing_id="PREF-1",
+                    title="優先測試盤 2房",
+                    listing_type=ListingType.SECOND_HAND,
+                    asking_price_hkd=12_800_000,
+                    bedrooms=2,
+                    status=ListingStatus.ACTIVE,
+                ),
+                Listing(
+                    development_id=expensive.id,
+                    source="srpe",
+                    source_listing_id="EXP-1",
+                    title="超預算測試盤 2房",
+                    listing_type=ListingType.FIRST_HAND_REMAINING,
+                    asking_price_hkd=18_500_000,
+                    bedrooms=2,
+                    status=ListingStatus.ACTIVE,
+                ),
+                Listing(
+                    development_id=old_stock.id,
+                    source="centanet",
+                    source_listing_id="OLD-1",
+                    title="樓齡過高測試盤 3房",
+                    listing_type=ListingType.SECOND_HAND,
+                    asking_price_hkd=13_500_000,
+                    bedrooms=3,
+                    status=ListingStatus.ACTIVE,
+                ),
+            ]
+        )
+        session.commit()
+
+    response = isolated_app.get(
+        "/api/v1/developments?has_coordinates=true&max_budget_hkd=16000000&bedroom_values=2,3,1&max_age_years=10"
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["display_name"] == "優先測試盤"
+    assert payload["items"][0]["active_listing_min_price_hkd"] == 12800000.0
+    assert payload["items"][0]["active_listing_max_price_hkd"] == 12800000.0
+    assert payload["items"][0]["active_listing_bedroom_options"] == [2]
+    assert payload["items"][0]["active_listing_bedroom_mix"] == {"2": 1}
+    assert payload["items"][0]["active_listing_source_counts"] == {"centanet": 1}
+
+
+def test_development_detail_exposes_market_snapshot(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            source="centanet",
+            source_external_id="snap-dev-1",
+            name_zh="盤面快照測試盤",
+            district="Kai Tak",
+            region="Kowloon",
+            completion_year=2023,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            lat=22.3,
+            lng=114.2,
+        )
+        session.add(development)
+        session.flush()
+        listing = Listing(
+            development_id=development.id,
+            source="centanet",
+            source_listing_id="SNAP-1",
+            title="盤面快照測試盤 2房",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=13_500_000,
+            bedrooms=2,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add(listing)
+        session.flush()
+        session.add(
+            PriceEvent(
+                source="centanet",
+                development_id=development.id,
+                listing_id=listing.id,
+                event_type=PriceEventType.NEW_LISTING,
+                new_price_hkd=13_500_000,
+                new_status="active",
+                event_at=datetime(2026, 4, 14, 10, 30),
+            )
+        )
+        session.commit()
+        development_id = development.id
+
+    response = isolated_app.get(f"/api/v1/developments/{development_id}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_listing_count"] == 1
+    assert payload["active_listing_min_price_hkd"] == 13500000.0
+    assert payload["active_listing_max_price_hkd"] == 13500000.0
+    assert payload["active_listing_bedroom_mix"] == {"2": 1}
+    assert payload["active_listing_source_counts"] == {"centanet": 1}
+    assert payload["latest_listing_event_at"] == "2026-04-14T10:30:00"
 
 
 def test_watchlist_upsert_and_list(isolated_app: TestClient) -> None:
@@ -127,6 +308,63 @@ def test_watchlist_upsert_and_list(isolated_app: TestClient) -> None:
     list_payload = list_response.json()
     assert len(list_payload) == 1
     assert list_payload[0]["development_name"] == "收藏测试盘"
+
+
+def test_search_preset_crud(isolated_app: TestClient) -> None:
+    create_response = isolated_app.post(
+        "/api/v1/search-presets",
+        json={
+            "name": "Buyer Focus",
+            "scope": "development_map",
+            "note": "1600萬內、2房優先",
+            "is_default": True,
+            "criteria": {
+                "listing_segments": ["new", "first_hand_remaining", "second_hand"],
+                "max_budget_hkd": 16000000,
+                "bedroom_values": [2, 3, 1],
+                "max_age_years": 10,
+                "watchlist_only": False,
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    create_payload = create_response.json()
+    assert create_payload["name"] == "Buyer Focus"
+    assert create_payload["is_default"] is True
+
+    list_response = isolated_app.get("/api/v1/search-presets?scope=development_map")
+    assert list_response.status_code == 200
+    list_payload = list_response.json()
+    assert len(list_payload) == 1
+    assert list_payload[0]["criteria"]["max_budget_hkd"] == 16000000
+
+    update_response = isolated_app.patch(
+        f"/api/v1/search-presets/{create_payload['id']}",
+        json={
+            "name": "Buyer Focus Updated",
+            "scope": "development_map",
+            "note": "放寬到15年內",
+            "is_default": True,
+            "criteria": {
+                "listing_segments": ["new", "first_hand_remaining", "second_hand"],
+                "max_budget_hkd": 16000000,
+                "bedroom_values": [2, 3, 1],
+                "max_age_years": 15,
+                "watchlist_only": False,
+            },
+        },
+    )
+    assert update_response.status_code == 200
+    update_payload = update_response.json()
+    assert update_payload["name"] == "Buyer Focus Updated"
+    assert update_payload["criteria"]["max_age_years"] == 15
+
+    delete_response = isolated_app.delete(f"/api/v1/search-presets/{create_payload['id']}")
+    assert delete_response.status_code == 204
+
+    final_response = isolated_app.get("/api/v1/search-presets?scope=development_map")
+    assert final_response.status_code == 200
+    assert final_response.json() == []
 
 
 def test_system_overview_and_refresh_jobs(isolated_app: TestClient) -> None:
@@ -322,6 +560,66 @@ def test_listings_feed_changes_only_excludes_new_listing(isolated_app: TestClien
     assert payload[0]["event_type"] == "price_drop"
 
 
+def test_listings_feed_days_filter_excludes_old_events(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            source="centanet",
+            source_external_id="days-dev-1",
+            name_zh="時間窗測試屋苑",
+            district="Kai Tak",
+            region="Kowloon",
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        session.add(development)
+        session.flush()
+
+        listing = Listing(
+            development_id=development.id,
+            source="centanet",
+            source_listing_id="MXL-DAYS-1",
+            title="時間窗測試盤",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=9_800_000,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add(listing)
+        session.flush()
+
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.NEW_LISTING,
+                development_id=development.id,
+                listing_id=listing.id,
+                new_price_hkd=10_100_000,
+                new_status="active",
+                event_at=datetime.utcnow() - timedelta(days=10),
+            )
+        )
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.PRICE_DROP,
+                development_id=development.id,
+                listing_id=listing.id,
+                old_price_hkd=10_100_000,
+                new_price_hkd=9_800_000,
+                old_status="active",
+                new_status="active",
+                event_at=datetime.utcnow() - timedelta(hours=12),
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/listings/feed?source=centanet&days=1")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["event_type"] == "price_drop"
+
+
 def test_listings_feed_q_search_matches_development_and_listing_text(isolated_app: TestClient) -> None:
     session_factory = get_session_factory()
     with session_factory() as session:
@@ -366,6 +664,84 @@ def test_listings_feed_q_search_matches_development_and_listing_text(isolated_ap
     payload = response.json()
     assert len(payload) == 1
     assert payload[0]["development_name"] == "海盈山"
+
+
+def test_listing_price_history_endpoint_returns_ordered_points(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            name_zh="價格歷史盤",
+            district="Kai Tak",
+            region="Kowloon",
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        session.add(development)
+        session.flush()
+
+        listing = Listing(
+            development_id=development.id,
+            source="centanet",
+            source_listing_id="MXL900",
+            title="價格歷史 2房",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=10_800_000,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add(listing)
+        session.flush()
+
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.NEW_LISTING,
+                development_id=development.id,
+                listing_id=listing.id,
+                new_price_hkd=11_200_000,
+                new_status="active",
+            )
+        )
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.PRICE_DROP,
+                development_id=development.id,
+                listing_id=listing.id,
+                old_price_hkd=11_200_000,
+                new_price_hkd=10_900_000,
+                old_status="active",
+                new_status="active",
+            )
+        )
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.PRICE_DROP,
+                development_id=development.id,
+                listing_id=listing.id,
+                old_price_hkd=10_900_000,
+                new_price_hkd=10_800_000,
+                old_status="active",
+                new_status="active",
+            )
+        )
+        session.commit()
+        listing_id = listing.id
+
+    response = isolated_app.get(f"/api/v1/listings/{listing_id}/price-history")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["listing_id"] == listing_id
+    assert payload["current_price_hkd"] == 10800000.0
+    assert payload["previous_price_hkd"] == 10900000.0
+    assert payload["lowest_price_hkd"] == 10800000.0
+    assert payload["highest_price_hkd"] == 11200000.0
+    assert payload["point_count"] == 3
+    assert [point["event_type"] for point in payload["points"]] == [
+        "new_listing",
+        "price_drop",
+        "price_drop",
+    ]
 
 
 def test_scheduler_plan_override_update_and_reset(isolated_app: TestClient) -> None:

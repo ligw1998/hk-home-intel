@@ -314,3 +314,19 @@ class SchedulerPlanOverride(TimestampMixin, Base):
     __table_args__ = (
         Index("ix_scheduler_plan_override_plan_name", "plan_name"),
     )
+
+
+class SearchPreset(TimestampMixin, Base):
+    __tablename__ = "search_preset"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    scope: Mapped[str] = mapped_column(String(60), nullable=False, default="development_map")
+    note: Mapped[str | None] = mapped_column(Text)
+    criteria_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint("scope", "name", name="uq_search_preset_scope_name"),
+        Index("ix_search_preset_scope_updated", "scope", "updated_at"),
+    )
