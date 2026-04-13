@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from hk_home_intel_domain.enums import JobRunStatus
-from hk_home_intel_domain.ingestion import import_srpe_all_developments
+from hk_home_intel_domain.ingestion import import_centanet_search_results, import_srpe_all_developments
 from hk_home_intel_domain.jobs import finish_job_run, start_job_run
 from hk_home_intel_domain.models import RefreshJobRun
 from hk_home_intel_shared.db import get_session_factory
@@ -72,6 +72,63 @@ def execute_srpe_refresh(
     return result
 
 
+def execute_centanet_search_refresh(
+    session: Session,
+    *,
+    url: str,
+    limit: int | None,
+    with_details: bool,
+    detect_withdrawn: bool,
+    trigger_kind: str = "manual",
+    job_name: str = "centanet_search_refresh",
+) -> dict[str, Any]:
+    job = start_job_run(
+        session,
+        job_name=job_name,
+        source="centanet",
+        trigger_kind=trigger_kind,
+    )
+    try:
+        summary = import_centanet_search_results(
+            session,
+            url=url,
+            limit=limit,
+            with_details=with_details,
+            detect_withdrawn=detect_withdrawn,
+        )
+    except Exception as exc:
+        finish_job_run(
+            session,
+            job=job,
+            status=JobRunStatus.FAILED,
+            error_message=str(exc),
+        )
+        raise
+
+    result = {
+        "job_id": job.id,
+        "source": summary.source,
+        "url": url,
+        "limit": limit,
+        "with_details": with_details,
+        "detect_withdrawn": detect_withdrawn,
+        "developments_created": summary.developments_created,
+        "developments_updated": summary.developments_updated,
+        "documents_upserted": summary.documents_upserted,
+        "listings_upserted": summary.listings_upserted,
+        "transactions_upserted": summary.transactions_upserted,
+        "price_events_created": summary.price_events_created,
+        "snapshots_created": summary.snapshots_created,
+    }
+    finish_job_run(
+        session,
+        job=job,
+        status=JobRunStatus.SUCCEEDED,
+        summary=result,
+    )
+    return result
+
+
 def execute_refresh_plan(
     session: Session,
     *,
@@ -98,28 +155,41 @@ def execute_refresh_plan(
     results: list[dict[str, Any]] = []
     try:
         for task in plan.tasks:
-            if task.command != "srpe_refresh":
+            if task.command == "srpe_refresh":
+                offset = _resolve_task_offset(
+                    session,
+                    plan_name=plan.name,
+                    task_job_name=task.job_name,
+                    limit=task.limit,
+                    rotation_mode=task.rotation_mode,
+                    rotation_step=task.rotation_step,
+                )
+                task_result = execute_srpe_refresh(
+                    session,
+                    language=task.language,
+                    limit=task.limit,
+                    offset=offset,
+                    include_details=task.with_details,
+                    trigger_kind="plan",
+                    job_name=f"{plan.name}:{task.job_name}",
+                )
+                task_result["rotation_mode"] = task.rotation_mode
+                task_result["rotation_step"] = task.rotation_step
+            elif task.command == "centanet_search_refresh":
+                if not task.url:
+                    raise ValueError(f"centanet task missing url: {task.job_name}")
+                task_result = execute_centanet_search_refresh(
+                    session,
+                    url=task.url,
+                    limit=task.limit,
+                    with_details=task.with_details,
+                    detect_withdrawn=task.detect_withdrawn,
+                    trigger_kind="plan",
+                    job_name=f"{plan.name}:{task.job_name}",
+                )
+            else:
                 raise ValueError(f"unsupported plan task command: {task.command}")
-            offset = _resolve_task_offset(
-                session,
-                plan_name=plan.name,
-                task_job_name=task.job_name,
-                limit=task.limit,
-                rotation_mode=task.rotation_mode,
-                rotation_step=task.rotation_step,
-            )
-            task_result = execute_srpe_refresh(
-                session,
-                language=task.language,
-                limit=task.limit,
-                offset=offset,
-                include_details=task.with_details,
-                trigger_kind="plan",
-                job_name=f"{plan.name}:{task.job_name}",
-            )
             task_result["job_name"] = task.job_name
-            task_result["rotation_mode"] = task.rotation_mode
-            task_result["rotation_step"] = task.rotation_step
             results.append(task_result)
     except Exception as exc:
         finish_job_run(

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
+import { formatEventType, formatListingStatus } from "../lib/listing-events";
+
 type ListingFeedItem = {
   id: string;
   event_type: string;
@@ -47,6 +49,8 @@ function ListingFeedPageContent() {
   const [items, setItems] = useState<ListingFeedItem[]>([]);
   const [source, setSource] = useState(searchParams.get("source") ?? "all");
   const [eventType, setEventType] = useState(searchParams.get("event_type") ?? "all");
+  const [search, setSearch] = useState(searchParams.get("q") ?? "");
+  const [changesOnly, setChangesOnly] = useState(searchParams.get("changes_only") === "true");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,6 +71,12 @@ function ListingFeedPageContent() {
         }
         if (eventType !== "all") {
           params.set("event_type", eventType);
+        }
+        if (search.trim()) {
+          params.set("q", search.trim());
+        }
+        if (changesOnly) {
+          params.set("changes_only", "true");
         }
         const response = await fetch(`${API_BASE}/api/v1/listings/feed?${params.toString()}`);
         if (!response.ok) {
@@ -92,15 +102,30 @@ function ListingFeedPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [developmentId, source, eventType]);
+  }, [changesOnly, developmentId, eventType, search, source]);
+
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      if (!search.trim()) {
+        return true;
+      }
+      const haystack = `${item.listing_title ?? ""} ${item.development_name ?? ""} ${item.source}`.toLowerCase();
+      return haystack.includes(search.trim().toLowerCase());
+    });
+  }, [items, search]);
 
   const summary = useMemo(() => {
-    const byType = items.reduce<Record<string, number>>((acc, item) => {
+    const byType = filteredItems.reduce<Record<string, number>>((acc, item) => {
       acc[item.event_type] = (acc[item.event_type] ?? 0) + 1;
       return acc;
     }, {});
     return byType;
-  }, [items]);
+  }, [filteredItems]);
+
+  const newListingCount = filteredItems.filter((item) => item.event_type === "new_listing").length;
+  const priceDropCount = filteredItems.filter((item) => item.event_type === "price_drop").length;
+  const withdrawnCount = filteredItems.filter((item) => item.event_type === "withdrawn").length;
+  const relistCount = filteredItems.filter((item) => item.event_type === "relist").length;
 
   return (
     <main className="page-shell">
@@ -123,6 +148,14 @@ function ListingFeedPageContent() {
         <article className="panel filter-panel">
           <h2>Filters</h2>
           <label className="field">
+            <span>Search</span>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Listing / development / source"
+            />
+          </label>
+          <label className="field">
             <span>Source</span>
             <select value={source} onChange={(event) => setSource(event.target.value)}>
               <option value="all">all</option>
@@ -143,14 +176,38 @@ function ListingFeedPageContent() {
               <option value="status_change">status_change</option>
             </select>
           </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={changesOnly}
+              onChange={(event) => setChangesOnly(event.target.checked)}
+            />
+            <span>Changes only</span>
+          </label>
           <dl className="kv-list compact-kv-list">
             <div>
               <dt>Total events</dt>
-              <dd>{items.length}</dd>
+              <dd>{filteredItems.length}</dd>
+            </div>
+            <div>
+              <dt>New listings</dt>
+              <dd>{newListingCount}</dd>
+            </div>
+            <div>
+              <dt>Price drops</dt>
+              <dd>{priceDropCount}</dd>
+            </div>
+            <div>
+              <dt>Withdrawn</dt>
+              <dd>{withdrawnCount}</dd>
+            </div>
+            <div>
+              <dt>Relists</dt>
+              <dd>{relistCount}</dd>
             </div>
             {Object.entries(summary).map(([key, value]) => (
               <div key={key}>
-                <dt>{key}</dt>
+                <dt>{formatEventType(key)}</dt>
                 <dd>{value}</dd>
               </div>
             ))}
@@ -159,18 +216,38 @@ function ListingFeedPageContent() {
 
         <article className="panel detail-span-2">
           <h2>Recent Events</h2>
+          {!loading && !error ? (
+            <div className="listing-feed-stats">
+            <div className="listing-feed-stat">
+              <strong>{filteredItems.length}</strong>
+              <span>Events in view</span>
+            </div>
+            <div className="listing-feed-stat">
+              <strong>{newListingCount}</strong>
+              <span>New listings</span>
+            </div>
+            <div className="listing-feed-stat">
+              <strong>{priceDropCount}</strong>
+              <span>Price drops</span>
+            </div>
+            <div className="listing-feed-stat">
+              <strong>{withdrawnCount + relistCount}</strong>
+              <span>Status moves</span>
+            </div>
+          </div>
+          ) : null}
           {loading ? (
             <p className="muted">Loading listing events...</p>
           ) : error ? (
             <p className="muted">Listing feed unavailable: {error}</p>
-          ) : items.length > 0 ? (
+          ) : filteredItems.length > 0 ? (
             <ul className="listing-event-list">
-              {items.map((item) => (
+              {filteredItems.map((item) => (
                 <li key={item.id} className="listing-event-item">
                   <div className="listing-event-head">
                     <strong>{item.listing_title ?? item.development_name ?? "Listing event"}</strong>
                     <span className={`listing-event-badge listing-event-badge-${item.event_type}`}>
-                      {item.event_type}
+                      {formatEventType(item.event_type)}
                     </span>
                   </div>
                   <span>
@@ -184,10 +261,11 @@ function ListingFeedPageContent() {
                     {item.price_delta_hkd !== null ? ` (${formatPrice(item.price_delta_hkd)})` : ""}
                   </span>
                   <span>
-                    {item.old_status ?? "new"} → {item.new_status ?? "unknown"}
+                    {formatListingStatus(item.old_status ?? "new")} → {formatListingStatus(item.new_status)}
                   </span>
                   <div className="hero-actions">
                     <Link href={`/developments/${item.development_id}`}>Open development</Link>
+                    {item.listing_id ? <Link href={`/listings/${item.listing_id}`}>Open listing detail</Link> : null}
                     {item.listing_source_url ? (
                       <a href={item.listing_source_url} target="_blank" rel="noreferrer">
                         Open source listing
@@ -200,6 +278,15 @@ function ListingFeedPageContent() {
           ) : (
             <p className="muted">No listing events matched the current filter.</p>
           )}
+          {!loading && !error && changesOnly && filteredItems.length === 0 ? (
+            <p className="muted">
+              No price or status changes matched the current scope. Try disabling
+              {" "}
+              <code>Changes only</code>
+              {" "}
+              to inspect new listings as well.
+            </p>
+          ) : null}
         </article>
       </section>
     </main>

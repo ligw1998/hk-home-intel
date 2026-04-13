@@ -1,15 +1,19 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 from hk_home_intel_api.main import create_app
 from hk_home_intel_connectors.srpe import SRPEAdapter
 from hk_home_intel_domain.ingestion import (
+    backfill_centanet_listing_details,
+    import_centanet_listing_detail,
     import_centanet_sample,
     import_centanet_search_results,
     import_srpe_all_developments,
     import_srpe_sample,
 )
+from hk_home_intel_domain.models import Listing, PriceEvent, SourceSnapshot
 from hk_home_intel_shared.db import get_engine, get_session_factory, reset_db_caches
 from hk_home_intel_shared.models.base import Base
 from hk_home_intel_shared.settings import clear_settings_cache
@@ -384,10 +388,19 @@ def test_import_centanet_search_results_html_creates_live_like_events(tmp_path: 
             url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
             html_path=str(fixture_path),
         )
+        snapshot = session.scalar(
+            select(SourceSnapshot).where(
+                SourceSnapshot.source == "centanet",
+                SourceSnapshot.object_type == "search_page",
+            )
+        )
 
     assert summary.developments_created == 1
     assert summary.listings_upserted == 2
     assert summary.price_events_created == 2
+    assert snapshot is not None
+    assert snapshot.file_path is not None
+    assert snapshot.snapshot_kind.value == "html"
 
     client = TestClient(create_app())
     feed = client.get("/api/v1/listings/feed?lang=zh-Hant")
@@ -482,6 +495,458 @@ def test_reimport_centanet_search_results_creates_price_change_events(tmp_path: 
     assert any(item["event_type"] == "price_raise" and item["new_price_hkd"] == 33000000.0 for item in feed_payload)
 
     client.close()
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_reimport_same_centanet_search_results_does_not_duplicate_events(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-idempotent.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_path = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+        / "centanet_search_results_sample.html"
+    )
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        first_summary = import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(fixture_path),
+        )
+        second_summary = import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(fixture_path),
+        )
+        total_events = session.scalar(select(func.count()).select_from(PriceEvent))
+        snapshot_count = session.scalar(
+            select(func.count())
+            .select_from(SourceSnapshot)
+            .where(
+                SourceSnapshot.source == "centanet",
+                SourceSnapshot.object_type == "search_page",
+            )
+        )
+
+    assert first_summary.price_events_created == 2
+    assert second_summary.price_events_created == 0
+    assert total_events == 2
+    assert snapshot_count == 2
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_centanet_search_snapshots_are_pruned_to_latest_five(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-snapshot-prune.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_path = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+        / "centanet_search_results_sample.html"
+    )
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        for _ in range(6):
+            import_centanet_search_results(
+                session,
+                url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+                html_path=str(fixture_path),
+            )
+        snapshot_count = session.scalar(
+            select(func.count())
+            .select_from(SourceSnapshot)
+            .where(
+                SourceSnapshot.source == "centanet",
+                SourceSnapshot.object_type == "search_page",
+            )
+        )
+
+    assert snapshot_count == 5
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_import_centanet_listing_detail_updates_listing_without_default_snapshot(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-detail.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_dir = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+    )
+    search_fixture = fixture_dir / "centanet_search_results_sample.html"
+    detail_fixture = fixture_dir / "centanet_detail_sample.html"
+    detail_url = "https://hk.centanet.com/findproperty/detail/%E5%8C%AF%E7%92%BD-5%E6%9C%9F-%E5%8C%AF%E7%92%BDIII-8%E5%BA%A7_1-EEPPWWPAPS_MXL121"
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        search_summary = import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(search_fixture),
+        )
+        detail_summary = import_centanet_listing_detail(
+            session,
+            url=detail_url,
+            html_path=str(detail_fixture),
+        )
+        detail_snapshot_count = session.scalar(
+            select(func.count())
+            .select_from(SourceSnapshot)
+            .where(
+                SourceSnapshot.source == "centanet",
+                SourceSnapshot.object_type == "detail_page",
+            )
+        )
+
+    assert search_summary.price_events_created == 2
+    assert detail_summary.listings_upserted == 1
+    assert detail_summary.price_events_created == 0
+    assert detail_snapshot_count == 0
+
+    with session_factory() as session:
+        listing = session.scalar(
+            select(Listing).where(
+                Listing.source == "centanet",
+                Listing.source_listing_id == "MXL121",
+            )
+        )
+
+    assert listing is not None
+
+    client = TestClient(create_app())
+
+    detail = client.get(f"/api/v1/listings/{listing.id}?lang=zh-Hant")
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert detail_payload["address"] == "深旺道28號"
+    assert detail_payload["monthly_payment_hkd"] == 26504.0
+    assert detail_payload["age_years"] == 6
+    assert detail_payload["orientation"] == "東"
+    assert detail_payload["developer_names"] == ["港鐵", "新鴻基"]
+
+    client.close()
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_import_centanet_search_with_details_enriches_listing_fields(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-search-with-detail.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_dir = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+    )
+    search_fixture = fixture_dir / "centanet_search_results_sample.html"
+    detail_fixture = fixture_dir / "centanet_detail_sample.html"
+
+    from hk_home_intel_connectors.centanet import CentanetAdapter
+
+    monkeypatch.setattr(
+        CentanetAdapter,
+        "fetch_listing_detail_html",
+        lambda self, url: detail_fixture.read_text(encoding="utf-8"),
+    )
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(search_fixture),
+            limit=1,
+            with_details=True,
+        )
+        listing = session.scalar(
+            select(Listing).where(
+                Listing.source == "centanet",
+                Listing.source_listing_id == "MXL121",
+            )
+        )
+
+    assert summary.listings_upserted == 2
+    assert summary.price_events_created == 1
+    assert listing is not None
+    assert (listing.raw_payload_json or {}).get("detail", {}).get("address") == "深旺道28號"
+    assert listing.last_seen_at is not None
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_search_reimport_preserves_existing_centanet_detail_payload(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-detail-preserve.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_dir = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+    )
+    search_fixture = fixture_dir / "centanet_search_results_sample.html"
+    detail_fixture = fixture_dir / "centanet_detail_sample.html"
+    detail_url = "https://hk.centanet.com/findproperty/detail/%E5%8C%AF%E7%92%BD-5%E6%9C%9F-%E5%8C%AF%E7%92%BDIII-8%E5%BA%A7_1-EEPPWWPAPS_MXL121"
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(search_fixture),
+        )
+        import_centanet_listing_detail(
+            session,
+            url=detail_url,
+            html_path=str(detail_fixture),
+        )
+        import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(search_fixture),
+        )
+        listing = session.scalar(
+            select(Listing).where(
+                Listing.source == "centanet",
+                Listing.source_listing_id == "MXL121",
+            )
+        )
+
+    assert listing is not None
+    assert (listing.raw_payload_json or {}).get("detail", {}).get("address") == "深旺道28號"
+    assert (listing.raw_payload_json or {}).get("detail", {}).get("orientation") == "東"
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_backfill_centanet_listing_details_enriches_existing_search_rows(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-backfill-detail.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_dir = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+    )
+    search_fixture = fixture_dir / "centanet_search_results_sample.html"
+    detail_fixture = fixture_dir / "centanet_detail_sample.html"
+
+    from hk_home_intel_connectors.centanet import CentanetAdapter
+
+    monkeypatch.setattr(
+        CentanetAdapter,
+        "fetch_listing_detail_html",
+        lambda self, url: detail_fixture.read_text(encoding="utf-8"),
+    )
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(search_fixture),
+            limit=1,
+        )
+        summary = backfill_centanet_listing_details(session, limit=1)
+        listing = session.scalar(
+            select(Listing).where(
+                Listing.source == "centanet",
+                Listing.source_listing_id == "MXL121",
+            )
+        )
+
+    assert summary.scanned == 1
+    assert summary.enriched == 1
+    assert summary.failed == 0
+    assert listing is not None
+    assert listing.last_seen_at is not None
+    assert (listing.raw_payload_json or {}).get("detail", {}).get("address") == "深旺道28號"
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_centanet_search_withdrawn_detection_and_relist(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-withdrawn.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_dir = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+    )
+    initial_fixture = fixture_dir / "centanet_search_results_sample.html"
+    withdrawn_fixture = fixture_dir / "centanet_search_results_withdrawn_sample.html"
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        first_summary = import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(initial_fixture),
+        )
+        second_summary = import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(withdrawn_fixture),
+            detect_withdrawn=True,
+        )
+        third_summary = import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(initial_fixture),
+        )
+        events = session.scalars(
+            select(PriceEvent)
+            .where(PriceEvent.source == "centanet")
+            .order_by(PriceEvent.event_at.asc())
+        ).all()
+
+    assert first_summary.price_events_created == 2
+    assert second_summary.price_events_created == 1
+    assert third_summary.price_events_created == 1
+    assert [item.event_type.value for item in events] == [
+        "new_listing",
+        "new_listing",
+        "withdrawn",
+        "relist",
+    ]
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_import_centanet_listing_detail_can_save_on_demand_snapshot(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-detail-snapshot.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_path = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+        / "centanet_detail_sample.html"
+    )
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = import_centanet_listing_detail(
+            session,
+            url="https://hk.centanet.com/findproperty/detail/%E5%8C%AF%E7%92%BD-5%E6%9C%9F-%E5%8C%AF%E7%92%BDIII-8%E5%BA%A7_1-EEPPWWPAPS_MXL121",
+            html_path=str(fixture_path),
+            save_snapshot=True,
+        )
+        snapshot = session.scalar(
+            select(SourceSnapshot).where(
+                SourceSnapshot.source == "centanet",
+                SourceSnapshot.object_type == "detail_page",
+            )
+        )
+
+    assert summary.snapshots_created == 3
+    assert snapshot is not None
+    assert snapshot.file_path is not None
+    assert snapshot.snapshot_kind.value == "html"
+
     engine.dispose()
     clear_settings_cache()
     reset_db_caches()

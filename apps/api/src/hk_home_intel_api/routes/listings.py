@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from hk_home_intel_domain.enums import PriceEventType
@@ -27,6 +27,34 @@ class ListingFeedItemResponse(BaseModel):
     price_delta_hkd: float | None
     old_status: str | None
     new_status: str | None
+
+
+class ListingDetailResponse(BaseModel):
+    id: str
+    source: str
+    source_listing_id: str
+    source_url: str | None
+    development_id: str
+    development_name: str | None
+    development_source_url: str | None
+    title: str | None
+    asking_price_hkd: float | None
+    price_per_sqft: float | None
+    bedrooms: int | None
+    bathrooms: int | None
+    saleable_area_sqft: float | None
+    gross_area_sqft: float | None
+    status: str
+    first_seen_at: str | None
+    last_seen_at: str | None
+    address: str | None
+    update_date: str | None
+    monthly_payment_hkd: float | None
+    age_years: int | None
+    orientation: str | None
+    feature_tags: list[str]
+    description: str | None
+    developer_names: list[str]
 
 
 def _serialize_event(item: PriceEvent, preferred_language: str, session: Session) -> ListingFeedItemResponse:
@@ -69,6 +97,50 @@ def _serialize_event(item: PriceEvent, preferred_language: str, session: Session
     )
 
 
+def _serialize_listing_detail(item: Listing, preferred_language: str, session: Session) -> ListingDetailResponse:
+    development = session.get(Development, item.development_id)
+    development_name = None
+    development_source_url = None
+    developer_names: list[str] = []
+    if development is not None:
+        development_name = localize_text(
+            development.name_translations_json or {},
+            preferred_language,
+            default=development.name_zh or development.name_en,
+        )
+        development_source_url = development.source_url
+        developer_names = development.developer_names_json or []
+
+    detail = (item.raw_payload_json or {}).get("detail") or {}
+    return ListingDetailResponse(
+        id=item.id,
+        source=item.source,
+        source_listing_id=item.source_listing_id,
+        source_url=item.source_url,
+        development_id=item.development_id,
+        development_name=development_name,
+        development_source_url=development_source_url,
+        title=localize_text(item.title_translations_json or {}, preferred_language, default=item.title),
+        asking_price_hkd=float(item.asking_price_hkd) if item.asking_price_hkd is not None else None,
+        price_per_sqft=float(item.price_per_sqft) if item.price_per_sqft is not None else None,
+        bedrooms=item.bedrooms,
+        bathrooms=item.bathrooms,
+        saleable_area_sqft=float(item.saleable_area_sqft) if item.saleable_area_sqft is not None else None,
+        gross_area_sqft=float(item.gross_area_sqft) if item.gross_area_sqft is not None else None,
+        status=item.status.value,
+        first_seen_at=item.first_seen_at.isoformat() if item.first_seen_at is not None else None,
+        last_seen_at=item.last_seen_at.isoformat() if item.last_seen_at is not None else None,
+        address=detail.get("address"),
+        update_date=detail.get("update_date"),
+        monthly_payment_hkd=float(detail["monthly_payment_hkd"]) if detail.get("monthly_payment_hkd") is not None else None,
+        age_years=detail.get("age_years"),
+        orientation=detail.get("orientation"),
+        feature_tags=detail.get("feature_tags") or [],
+        description=detail.get("description"),
+        developer_names=developer_names,
+    )
+
+
 @router.get("/feed", response_model=list[ListingFeedItemResponse])
 def list_listing_feed(
     lang: str = Query(default="zh-Hant"),
@@ -76,10 +148,16 @@ def list_listing_feed(
     listing_id: str | None = Query(default=None),
     source: str | None = Query(default=None),
     event_type: PriceEventType | None = Query(default=None),
+    q: str | None = Query(default=None),
+    changes_only: bool = Query(default=False),
     limit: int = Query(default=30, ge=1, le=100),
     session: Session = Depends(get_db_session),
 ) -> list[ListingFeedItemResponse]:
-    stmt = select(PriceEvent).order_by(PriceEvent.event_at.desc()).limit(limit)
+    stmt = (
+        select(PriceEvent)
+        .outerjoin(Listing, PriceEvent.listing_id == Listing.id)
+        .outerjoin(Development, PriceEvent.development_id == Development.id)
+    )
     if development_id:
         stmt = stmt.where(PriceEvent.development_id == development_id)
     if listing_id:
@@ -88,6 +166,20 @@ def list_listing_feed(
         stmt = stmt.where(PriceEvent.source == source)
     if event_type:
         stmt = stmt.where(PriceEvent.event_type == event_type)
+    if changes_only:
+        stmt = stmt.where(PriceEvent.event_type != PriceEventType.NEW_LISTING)
+    if q:
+        pattern = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(
+                Listing.title.ilike(pattern),
+                Development.name_zh.ilike(pattern),
+                Development.name_en.ilike(pattern),
+                Development.district.ilike(pattern),
+                PriceEvent.source.ilike(pattern),
+            )
+        )
+    stmt = stmt.order_by(PriceEvent.event_at.desc()).limit(limit)
     items = session.scalars(stmt).all()
     return [_serialize_event(item, lang, session) for item in items]
 
@@ -107,3 +199,15 @@ def get_listing_events(
         .order_by(PriceEvent.event_at.desc())
     ).all()
     return [_serialize_event(item, lang, session) for item in items]
+
+
+@router.get("/{listing_id}", response_model=ListingDetailResponse)
+def get_listing_detail(
+    listing_id: str,
+    lang: str = Query(default="zh-Hant"),
+    session: Session = Depends(get_db_session),
+) -> ListingDetailResponse:
+    listing = session.get(Listing, listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="listing not found")
+    return _serialize_listing_detail(listing, lang, session)

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { formatListingSegment } from "../lib/segment";
+
 type WatchlistItem = {
   id: string;
   development_id: string;
@@ -220,7 +222,7 @@ export default function WatchlistPage() {
                       <p className="muted">
                         {item.district ?? "Unknown district"}
                         {item.region ? ` / ${item.region}` : ""}
-                        {item.listing_segment ? ` / ${item.listing_segment}` : ""}
+                        {item.listing_segment ? ` / ${formatListingSegment(item.listing_segment)}` : ""}
                       </p>
                     </div>
                     <span className="watchlist-updated">Updated {formatUpdatedAt(item.updated_at)}</span>

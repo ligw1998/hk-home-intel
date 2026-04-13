@@ -121,6 +121,7 @@ class Listing(TimestampMixin, Base):
         default=ListingStatus.UNKNOWN,
         nullable=False,
     )
+    field_hash: Mapped[str | None] = mapped_column(String(64))
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)

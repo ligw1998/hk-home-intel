@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
+import { formatListingSegment, SEGMENT_OPTIONS } from "../lib/segment";
+
 type DevelopmentSummary = {
   id: string;
   source_url: string | null;
@@ -127,7 +129,10 @@ function MapPageContent() {
 
   const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
   const watchlistCount = filtered.filter((item) => Boolean(watchlistByDevelopment[item.id])).length;
+  const newCount = filtered.filter((item) => item.listing_segment === "new").length;
   const firstHandCount = filtered.filter((item) => item.listing_segment === "first_hand_remaining").length;
+  const secondHandCount = filtered.filter((item) => item.listing_segment === "second_hand").length;
+  const mixedCount = filtered.filter((item) => item.listing_segment === "mixed").length;
 
   return (
     <main className="page-shell">
@@ -183,9 +188,11 @@ function MapPageContent() {
           <label className="field">
             <span>Segment</span>
             <select value={segment} onChange={(event) => setSegment(event.target.value)}>
-              <option value="all">All segments</option>
-              <option value="first_hand_remaining">first_hand_remaining</option>
-              <option value="mixed">mixed</option>
+              {SEGMENT_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
             </select>
           </label>
           <label className="checkbox-field">
@@ -205,12 +212,20 @@ function MapPageContent() {
               <dd>{watchlistCount}</dd>
             </div>
             <div>
+              <dt>New</dt>
+              <dd>{newCount}</dd>
+            </div>
+            <div>
               <dt>First-hand</dt>
               <dd>{firstHandCount}</dd>
             </div>
             <div>
-              <dt>Other</dt>
-              <dd>{filtered.length - firstHandCount}</dd>
+              <dt>Second-hand</dt>
+              <dd>{secondHandCount}</dd>
+            </div>
+            <div>
+              <dt>Mixed</dt>
+              <dd>{mixedCount}</dd>
             </div>
           </dl>
           <div className="legend">
@@ -219,8 +234,12 @@ function MapPageContent() {
               <small>First-hand remaining</small>
             </div>
             <div>
+              <span className="bubble bubble-secondary legend-bubble" />
+              <small>Second-hand</small>
+            </div>
+            <div>
               <span className="bubble bubble-muted legend-bubble" />
-              <small>Mixed / other</small>
+              <small>Mixed</small>
             </div>
             <div>
               <span className="legend-ring" />
@@ -254,7 +273,7 @@ function MapPageContent() {
                 {selected.district ?? "Unknown district"}
                 {selected.region ? ` / ${selected.region}` : ""}
               </span>
-              <span>{selected.listing_segment}</span>
+              <span>{formatListingSegment(selected.listing_segment)}</span>
               {watchlistByDevelopment[selected.id] ? (
                 <span>Watchlist / {watchlistByDevelopment[selected.id]}</span>
               ) : null}
@@ -290,7 +309,9 @@ function MapPageContent() {
                   {item.display_name ?? item.id}
                   {watchlistByDevelopment[item.id] ? " · saved" : ""}
                 </strong>
-                <span>{item.district ?? "Unknown district"}</span>
+                <span>
+                  {item.district ?? "Unknown district"} / {formatListingSegment(item.listing_segment)}
+                </span>
               </button>
             ))}
           </div>

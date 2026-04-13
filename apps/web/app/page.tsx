@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { formatListingSegment } from "./lib/segment";
+
 type HealthResponse = {
   status: string;
   environment: string;
@@ -163,7 +165,7 @@ export default function HomePage() {
                     </Link>
                   </strong>
                   <span>
-                    {item.district ?? "Unknown district"} / {item.listing_segment}
+                    {item.district ?? "Unknown district"} / {formatListingSegment(item.listing_segment)}
                   </span>
                   <span>
                     {item.completion_year ? `Completion ${item.completion_year}` : "Year TBD"}

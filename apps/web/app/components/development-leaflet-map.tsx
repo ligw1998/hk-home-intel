@@ -11,6 +11,8 @@ import {
 } from "react-leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
 
+import { formatListingSegment } from "../lib/segment";
+
 type DevelopmentSummary = {
   id: string;
   source_url: string | null;
@@ -24,13 +26,19 @@ type DevelopmentSummary = {
 };
 
 function segmentColor(segment: string): string {
+  if (segment === "new") {
+    return "#a8741f";
+  }
   if (segment === "first_hand_remaining") {
     return "#bb6126";
+  }
+  if (segment === "second_hand") {
+    return "#517654";
   }
   if (segment === "mixed") {
     return "#355c70";
   }
-  return "#517654";
+  return "#7a7266";
 }
 
 function FitToDevelopments({ items }: { items: DevelopmentSummary[] }) {
@@ -125,7 +133,7 @@ export function DevelopmentLeafletMap({
                     {item.district ?? "Unknown district"}
                     {item.region ? ` / ${item.region}` : ""}
                   </span>
-                  <span>{item.listing_segment}</span>
+                  <span>{formatListingSegment(item.listing_segment)}</span>
                   {watchlistStage ? <span>Watchlist / {watchlistStage}</span> : null}
                   <div className="map-popup-actions">
                     <button type="button" className="action-button" onClick={() => onSelect(item.id)}>

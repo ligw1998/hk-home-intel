@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { WatchlistButton } from "../../components/watchlist-button";
+import { formatEventType, formatListingStatus } from "../../lib/listing-events";
+import { formatListingSegment } from "../../lib/segment";
 
 type DocumentSummary = {
   id: string;
@@ -136,7 +138,7 @@ export default async function DevelopmentDetailPage({
           {development.district ?? "Unknown district"}
           {development.region ? ` / ${development.region}` : ""}
           {" / "}
-          {development.listing_segment}
+          {formatListingSegment(development.listing_segment)}
         </p>
         <div className="hero-actions">
           <Link href="/">Back to dashboard</Link>
@@ -196,7 +198,7 @@ export default async function DevelopmentDetailPage({
                 <li key={item.id}>
                   <strong>{item.display_title ?? "Untitled listing"}</strong>
                   <span>
-                    {item.listing_type} / {item.status}
+                    {item.listing_type.replaceAll("_", " ")} / {item.status}
                   </span>
                   <span>{formatPrice(item.asking_price_hkd)}</span>
                 </li>
@@ -216,7 +218,7 @@ export default async function DevelopmentDetailPage({
                   <div className="listing-event-head">
                     <strong>{item.listing_title ?? item.development_name ?? "Listing event"}</strong>
                     <span className={`listing-event-badge listing-event-badge-${item.event_type}`}>
-                      {item.event_type}
+                      {formatEventType(item.event_type)}
                     </span>
                   </div>
                   <span>
@@ -226,8 +228,16 @@ export default async function DevelopmentDetailPage({
                     {formatPrice(item.old_price_hkd)} → {formatPrice(item.new_price_hkd)}
                   </span>
                   <span>
-                    {item.old_status ?? "new"} → {item.new_status ?? "unknown"}
+                    {formatListingStatus(item.old_status ?? "new")} → {formatListingStatus(item.new_status)}
                   </span>
+                  <div className="hero-actions">
+                    {item.listing_id ? <Link href={`/listings/${item.listing_id}`}>Open listing detail</Link> : null}
+                    {item.listing_source_url ? (
+                      <a href={item.listing_source_url} target="_blank" rel="noreferrer">
+                        Open source listing
+                      </a>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

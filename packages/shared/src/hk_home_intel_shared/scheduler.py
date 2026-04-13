@@ -17,9 +17,11 @@ class RefreshTaskConfig:
     job_name: str
     source: str
     command: str
+    url: str | None = None
     language: str = "en"
     limit: int | None = None
     with_details: bool = False
+    detect_withdrawn: bool = False
     rotation_mode: str = "none"
     rotation_step: int | None = None
 
@@ -55,9 +57,11 @@ def load_scheduler_plans(path: Path | None = None, session: Session | None = Non
                 job_name=item["job_name"],
                 source=item["source"],
                 command=item["command"],
+                url=item.get("url"),
                 language=item.get("language", "en"),
                 limit=item.get("limit"),
                 with_details=bool(item.get("with_details", False)),
+                detect_withdrawn=bool(item.get("detect_withdrawn", False)),
                 rotation_mode=item.get("rotation_mode", "none"),
                 rotation_step=item.get("rotation_step"),
             )
@@ -95,6 +99,8 @@ def _apply_scheduler_overrides(
                 task.limit = task_override["limit"]
             if "with_details" in task_override:
                 task.with_details = bool(task_override["with_details"])
+            if "detect_withdrawn" in task_override:
+                task.detect_withdrawn = bool(task_override["detect_withdrawn"])
             if "rotation_mode" in task_override:
                 task.rotation_mode = task_override["rotation_mode"]
             if "rotation_step" in task_override:

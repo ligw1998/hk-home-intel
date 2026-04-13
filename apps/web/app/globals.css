@@ -309,6 +309,11 @@ a:hover {
   color: #fff8f1;
 }
 
+.bubble-secondary {
+  background: #517654;
+  color: #f6fbf2;
+}
+
 .bubble-muted {
   background: #355c70;
   color: #f3fbff;
@@ -407,6 +412,31 @@ a:hover {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.listing-feed-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.listing-feed-stat {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 252, 245, 0.68);
+}
+
+.listing-feed-stat strong {
+  font-size: 1.2rem;
+}
+
+.listing-feed-stat span {
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 .listing-event-item {
@@ -710,6 +740,10 @@ a:hover {
   }
 
   .watchlist-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .listing-feed-stats {
     grid-template-columns: 1fr;
   }
 

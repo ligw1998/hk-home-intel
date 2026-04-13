@@ -3,7 +3,7 @@ from pathlib import Path
 
 from hk_home_intel_domain.enums import JobRunStatus
 from hk_home_intel_domain.models import RefreshJobRun
-from hk_home_intel_domain.refresh import _resolve_task_offset
+from hk_home_intel_domain.refresh import _resolve_task_offset, execute_refresh_plan
 from hk_home_intel_shared.db import get_engine
 from hk_home_intel_shared.models.base import Base
 from hk_home_intel_shared.scheduler import get_due_scheduler_plan_names, get_scheduler_plan_statuses, load_scheduler_plans
@@ -15,11 +15,15 @@ def test_load_scheduler_plans_reads_expected_tasks() -> None:
 
     assert "daily_local" in plans
     assert "watchlist_probe" in plans
+    assert "centanet_probe" in plans
     assert plans["daily_local"].tasks[0].command == "srpe_refresh"
     assert plans["daily_local"].tasks[0].with_details is True
     assert plans["daily_local"].tasks[0].rotation_mode == "cycle"
     assert plans["daily_local"].tasks[0].rotation_step == 20
     assert plans["watchlist_probe"].tasks[0].limit == 5
+    assert plans["centanet_probe"].tasks[0].command == "centanet_search_refresh"
+    assert plans["centanet_probe"].tasks[0].url
+    assert plans["centanet_probe"].tasks[0].with_details is True
     assert plans["daily_local"].auto_run is True
     assert plans["daily_local"].interval_minutes == 1440
 
@@ -96,3 +100,47 @@ def test_rotation_offset_advances_with_successful_task_runs(tmp_path: Path) -> N
         )
 
     assert offset == 40
+
+
+def test_execute_refresh_plan_dispatches_centanet_probe(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'centanet-plan.db'}")
+    Base.metadata.create_all(engine)
+
+    def fake_centanet_refresh(
+        session,
+        *,
+        url: str,
+        limit: int | None,
+        with_details: bool,
+        detect_withdrawn: bool,
+        trigger_kind: str = "manual",
+        job_name: str = "centanet_search_refresh",
+    ):
+        return {
+            "job_id": "job-centanet-test",
+            "source": "centanet",
+            "url": url,
+            "limit": limit,
+            "with_details": with_details,
+            "detect_withdrawn": detect_withdrawn,
+            "developments_created": 0,
+            "developments_updated": 1,
+            "documents_upserted": 0,
+            "listings_upserted": 3,
+            "transactions_upserted": 0,
+            "price_events_created": 2,
+            "snapshots_created": 1,
+        }
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.refresh.execute_centanet_search_refresh",
+        fake_centanet_refresh,
+    )
+
+    with Session(engine) as session:
+        result = execute_refresh_plan(session, plan_name="centanet_probe", trigger_kind="manual")
+
+    assert result["plan"] == "centanet_probe"
+    assert result["task_count"] == 1
+    assert result["results"][0]["source"] == "centanet"
+    assert result["results"][0]["listings_upserted"] == 3

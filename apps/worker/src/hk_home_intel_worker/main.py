@@ -7,6 +7,8 @@ from hk_home_intel_connectors.http import fetch_text
 from hk_home_intel_connectors.srpe import SRPEAdapter
 from hk_home_intel_domain.ingestion import (
     backfill_development_coordinates,
+    backfill_centanet_listing_details,
+    import_centanet_listing_detail,
     download_srpe_documents_for_development,
     import_centanet_search_results,
     import_centanet_sample,
@@ -36,7 +38,17 @@ def main() -> None:
         run_import_centanet_sample(args.path)
         return
     if args.command == "import-centanet-search":
-        run_import_centanet_search(args.url, args.html_path, args.limit)
+        run_import_centanet_search(
+            args.url,
+            args.html_path,
+            args.limit,
+            args.with_details,
+            args.save_detail_snapshots,
+            args.detect_withdrawn,
+        )
+        return
+    if args.command == "import-centanet-detail":
+        run_import_centanet_detail(args.url, args.html_path, args.save_snapshot)
         return
     if args.command == "import-srpe-index":
         run_import_srpe_index(args.lang, args.limit, args.offset, args.with_details)
@@ -55,6 +67,9 @@ def main() -> None:
         return
     if args.command == "backfill-development-coordinates":
         run_backfill_development_coordinates(args.limit)
+        return
+    if args.command == "backfill-centanet-details":
+        run_backfill_centanet_details(args.limit, args.all, args.save_snapshots)
         return
     if args.command == "download-srpe-documents":
         run_download_srpe_documents(args.source_external_id, args.force)
@@ -100,6 +115,14 @@ def build_parser() -> argparse.ArgumentParser:
     centanet_search_parser.add_argument("--url", dest="url", required=True)
     centanet_search_parser.add_argument("--html-path", dest="html_path", default=None)
     centanet_search_parser.add_argument("--limit", dest="limit", type=int, default=None)
+    centanet_search_parser.add_argument("--with-details", dest="with_details", action="store_true")
+    centanet_search_parser.add_argument("--save-detail-snapshots", dest="save_detail_snapshots", action="store_true")
+    centanet_search_parser.add_argument("--detect-withdrawn", dest="detect_withdrawn", action="store_true")
+
+    centanet_detail_parser = subparsers.add_parser("import-centanet-detail")
+    centanet_detail_parser.add_argument("--url", dest="url", required=True)
+    centanet_detail_parser.add_argument("--html-path", dest="html_path", default=None)
+    centanet_detail_parser.add_argument("--save-snapshot", dest="save_snapshot", action="store_true")
 
     import_index_parser = subparsers.add_parser("import-srpe-index")
     import_index_parser.add_argument("--lang", dest="lang", default="en")
@@ -126,6 +149,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     backfill_parser = subparsers.add_parser("backfill-development-coordinates")
     backfill_parser.add_argument("--limit", dest="limit", type=int, default=None)
+
+    centanet_backfill_parser = subparsers.add_parser("backfill-centanet-details")
+    centanet_backfill_parser.add_argument("--limit", dest="limit", type=int, default=None)
+    centanet_backfill_parser.add_argument("--all", dest="all", action="store_true")
+    centanet_backfill_parser.add_argument("--save-snapshots", dest="save_snapshots", action="store_true")
 
     download_parser = subparsers.add_parser("download-srpe-documents")
     download_parser.add_argument("--source-external-id", dest="source_external_id", required=True)
@@ -194,11 +222,26 @@ def run_import_centanet_sample(path: str | None) -> None:
     )
 
 
-def run_import_centanet_search(url: str, html_path: str | None, limit: int | None) -> None:
+def run_import_centanet_search(
+    url: str,
+    html_path: str | None,
+    limit: int | None,
+    with_details: bool,
+    save_detail_snapshots: bool,
+    detect_withdrawn: bool,
+) -> None:
     ensure_runtime_dirs()
     session_factory = get_session_factory()
     with session_factory() as session:
-        summary = import_centanet_search_results(session, url=url, html_path=html_path, limit=limit)
+        summary = import_centanet_search_results(
+            session,
+            url=url,
+            html_path=html_path,
+            limit=limit,
+            with_details=with_details,
+            save_detail_snapshots=save_detail_snapshots,
+            detect_withdrawn=detect_withdrawn,
+        )
 
     print(
         json.dumps(
@@ -207,6 +250,36 @@ def run_import_centanet_search(url: str, html_path: str | None, limit: int | Non
                 "url": url,
                 "html_path": html_path,
                 "limit": limit,
+                "with_details": with_details,
+                "save_detail_snapshots": save_detail_snapshots,
+                "detect_withdrawn": detect_withdrawn,
+                "developments_created": summary.developments_created,
+                "developments_updated": summary.developments_updated,
+                "documents_upserted": summary.documents_upserted,
+                "listings_upserted": summary.listings_upserted,
+                "transactions_upserted": summary.transactions_upserted,
+                "price_events_created": summary.price_events_created,
+                "snapshots_created": summary.snapshots_created,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+def run_import_centanet_detail(url: str, html_path: str | None, save_snapshot: bool) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = import_centanet_listing_detail(session, url=url, html_path=html_path, save_snapshot=save_snapshot)
+
+    print(
+        json.dumps(
+            {
+                "source": summary.source,
+                "url": url,
+                "html_path": html_path,
+                "save_snapshot": save_snapshot,
                 "developments_created": summary.developments_created,
                 "developments_updated": summary.developments_updated,
                 "documents_upserted": summary.documents_upserted,
@@ -318,6 +391,37 @@ def run_backfill_development_coordinates(limit: int | None) -> None:
                 "limit": limit,
             },
             indent=2,
+        )
+    )
+
+
+def run_backfill_centanet_details(limit: int | None, process_all: bool, save_snapshots: bool) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = backfill_centanet_listing_details(
+            session,
+            limit=limit,
+            only_missing_detail=not process_all,
+            save_snapshots=save_snapshots,
+        )
+
+    print(
+        json.dumps(
+            {
+                "source": summary.source,
+                "limit": limit,
+                "only_missing_detail": not process_all,
+                "save_snapshots": save_snapshots,
+                "scanned": summary.scanned,
+                "enriched": summary.enriched,
+                "skipped": summary.skipped,
+                "failed": summary.failed,
+                "price_events_created": summary.price_events_created,
+                "snapshots_created": summary.snapshots_created,
+            },
+            indent=2,
+            ensure_ascii=False,
         )
     )
 

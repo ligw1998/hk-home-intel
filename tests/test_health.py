@@ -159,8 +159,13 @@ def test_system_overview_and_refresh_jobs(isolated_app: TestClient) -> None:
     assert plans_response.status_code == 200
     plans_payload = plans_response.json()
     assert any(item["name"] == "daily_local" for item in plans_payload)
+    assert any(item["name"] == "centanet_probe" for item in plans_payload)
     assert any("due_now" in item for item in plans_payload)
     assert any("has_override" in item for item in plans_payload)
+    centanet_plan = next(item for item in plans_payload if item["name"] == "centanet_probe")
+    assert centanet_plan["tasks"][0]["command"] == "centanet_search_refresh"
+    assert centanet_plan["tasks"][0]["url"]
+    assert centanet_plan["tasks"][0]["detect_withdrawn"] is False
 
 
 def test_run_scheduler_plan_endpoint(isolated_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -261,6 +266,108 @@ def test_listings_feed_filters_by_source_and_includes_links(isolated_app: TestCl
     assert payload[0]["price_delta_hkd"] == -200000.0
 
 
+def test_listings_feed_changes_only_excludes_new_listing(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            name_zh="變化測試屋苑",
+            district="Kowloon City",
+            region="Kowloon",
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        session.add(development)
+        session.flush()
+
+        listing = Listing(
+            development_id=development.id,
+            source="centanet",
+            source_listing_id="MXL777",
+            title="變化測試盤",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=7_800_000,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add(listing)
+        session.flush()
+
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.NEW_LISTING,
+                development_id=development.id,
+                listing_id=listing.id,
+                new_price_hkd=7_800_000,
+                new_status="active",
+            )
+        )
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.PRICE_DROP,
+                development_id=development.id,
+                listing_id=listing.id,
+                old_price_hkd=8_000_000,
+                new_price_hkd=7_800_000,
+                old_status="active",
+                new_status="active",
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/listings/feed?source=centanet&changes_only=true")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["event_type"] == "price_drop"
+
+
+def test_listings_feed_q_search_matches_development_and_listing_text(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            name_zh="海盈山",
+            district="Aberdeen",
+            region="Hong Kong Island",
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        session.add(development)
+        session.flush()
+
+        listing = Listing(
+            development_id=development.id,
+            source="centanet",
+            source_listing_id="MXL555",
+            title="海盈山 2房調整叫價",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=12_300_000,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add(listing)
+        session.flush()
+
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.PRICE_RAISE,
+                development_id=development.id,
+                listing_id=listing.id,
+                old_price_hkd=12_000_000,
+                new_price_hkd=12_300_000,
+                old_status="active",
+                new_status="active",
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/listings/feed?q=%E6%B5%B7%E7%9B%88%E5%B1%B1")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["development_name"] == "海盈山"
+
+
 def test_scheduler_plan_override_update_and_reset(isolated_app: TestClient) -> None:
     update_response = isolated_app.patch(
         "/api/v1/system/scheduler-plans/daily_local",
@@ -272,6 +379,7 @@ def test_scheduler_plan_override_update_and_reset(isolated_app: TestClient) -> N
                     "job_name": "srpe_refresh",
                     "limit": 8,
                     "with_details": False,
+                    "detect_withdrawn": False,
                     "rotation_mode": "none",
                     "rotation_step": 8,
                 }

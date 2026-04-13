@@ -95,6 +95,52 @@ conda run -n py311 hhi-worker import-centanet-search --url 'https://hk.centanet.
 
 这条命令会抓一页中原搜索结果，解析 listing card，并把结果写入 `development / listing / price_event`。当前它适合作为 Phase 3A 的低频入口验证，不适合高频批量抓取。
 
+如果你希望结果页导入后顺手补全每条 listing 的 detail 字段，但仍然不默认保存 raw HTML：
+
+```bash
+conda run -n py311 hhi-worker import-centanet-search --url 'https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS' --limit 10 --with-details
+```
+
+这会在 search import 后继续抓 listing detail 页面，并把地址、更新日期、月供、楼龄、座向、标签、简介等字段补到本地 `listing`。只有你额外加 `--save-detail-snapshots` 时，才会为这些 detail 页保留原始 HTML 快照。
+
+如果你确认某个搜索页是完整范围、不是手动截断结果，还可以显式启用页面级撤盘识别：
+
+```bash
+conda run -n py311 hhi-worker import-centanet-search --url 'https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS' --detect-withdrawn
+```
+
+这会把该搜索页中已消失、但本地仍标记为 `active` 的 listing 改为 `withdrawn`，并写入 `price_event`。注意：它要求完整导入当前搜索页，因此不要与 `--limit` 同时使用。
+
+按单条中原 listing URL 导入 detail 字段：
+
+```bash
+conda run -n py311 hhi-worker import-centanet-detail --url 'https://hk.centanet.com/findproperty/detail/...'
+```
+
+这条命令会解析单条商业源 listing 的 detail 页面，并把地址、更新日期、月供、楼龄、座向、标签、简介等字段补到已存在的 `listing` 记录里。默认不会保存 raw HTML。
+
+如果你需要为某个重点 listing 留一份调试或取证级别的原始 HTML：
+
+```bash
+conda run -n py311 hhi-worker import-centanet-detail --url 'https://hk.centanet.com/findproperty/detail/...' --save-snapshot
+```
+
+这会额外保存一份受控的 `detail_page` snapshot，但它不是商业源的默认保留策略。
+
+如果你已经导入过一批中原 search rows，后续想只给这些旧记录批量补 detail 字段：
+
+```bash
+conda run -n py311 hhi-worker backfill-centanet-details --limit 20
+```
+
+这条命令会扫描本地已有的 `centanet` listing，优先补那些仍缺少地址、更新日期、楼龄、座向、简介等 detail 字段的记录。默认不保存 raw HTML；如果你明确想保留重点盘的原始页，再加 `--save-snapshots`。
+
+如果你想通过系统页以 plan 的方式低频刷新一个中原搜索页，当前也已经内置了：
+
+- `/system` -> `centanet_probe`
+
+它默认是手动 plan，不会自动跑；适合把一个重点屋苑或搜索条件作为商业源观察窗，而不是做大范围商业站抓取。
+
 导入真实 SRPE 官方 index 数据：
 
 ```bash
@@ -210,6 +256,7 @@ npm run dev:web
 - API: `http://127.0.0.1:8000`
 - Activity view: `http://127.0.0.1:3000/activity`
 - Listing event feed: `http://127.0.0.1:3000/listings`
+- Listing detail: `http://127.0.0.1:3000/listings/<listing_id>`
 - Map view: `http://127.0.0.1:3000/map`
 - System view: `http://127.0.0.1:3000/system`
 - Watchlist view: `http://127.0.0.1:3000/watchlist`

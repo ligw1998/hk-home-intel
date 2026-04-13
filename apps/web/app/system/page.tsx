@@ -27,9 +27,11 @@ type SchedulerTask = {
   job_name: string;
   source: string;
   command: string;
+  url: string | null;
   language: string;
   limit: number | null;
   with_details: boolean;
+  detect_withdrawn: boolean;
   rotation_mode: string;
   rotation_step: number | null;
 };
@@ -67,6 +69,7 @@ type SchedulerTaskDraft = {
   job_name: string;
   limit: string;
   with_details: boolean;
+  detect_withdrawn: boolean;
   rotation_mode: string;
   rotation_step: string;
 };
@@ -121,12 +124,18 @@ function describeJob(item: RefreshJobRunSummary): string {
 }
 
 function describeTask(task: SchedulerTask): string {
-  const parts = [task.job_name, task.source, task.language];
+  const parts = [task.job_name, task.source];
+  if (task.command === "srpe_refresh") {
+    parts.push(task.language);
+  }
   if (task.limit !== null) {
     parts.push(`limit ${task.limit}`);
   }
   if (task.with_details) {
     parts.push("with details");
+  }
+  if (task.detect_withdrawn) {
+    parts.push("detect withdrawn");
   }
   if (task.rotation_mode === "cycle") {
     parts.push(`rotate by ${task.rotation_step ?? task.limit ?? "window"}`);
@@ -138,13 +147,14 @@ function buildPlanDraft(plan: SchedulerPlan): SchedulerPlanDraft {
   return {
     auto_run: plan.auto_run,
     interval_minutes: plan.interval_minutes?.toString() ?? "",
-    tasks: plan.tasks.map((task) => ({
-      job_name: task.job_name,
-      limit: task.limit?.toString() ?? "",
-      with_details: task.with_details,
-      rotation_mode: task.rotation_mode,
-      rotation_step: task.rotation_step?.toString() ?? "",
-    })),
+      tasks: plan.tasks.map((task) => ({
+        job_name: task.job_name,
+        limit: task.limit?.toString() ?? "",
+        with_details: task.with_details,
+        detect_withdrawn: task.detect_withdrawn,
+        rotation_mode: task.rotation_mode,
+        rotation_step: task.rotation_step?.toString() ?? "",
+      })),
   };
 }
 
@@ -367,6 +377,7 @@ export default function SystemPage() {
             job_name: task.job_name,
             limit: task.limit === "" ? null : Number(task.limit),
             with_details: task.with_details,
+            detect_withdrawn: task.detect_withdrawn,
             rotation_mode: task.rotation_mode,
             rotation_step: task.rotation_step === "" ? null : Number(task.rotation_step),
           })),
@@ -577,6 +588,18 @@ export default function SystemPage() {
                           />
                           <span>With details</span>
                         </label>
+                        <label className="checkbox-field">
+                          <input
+                            type="checkbox"
+                            checked={task.detect_withdrawn}
+                            onChange={(event) =>
+                              updateTaskDraft(plan.name, task.job_name, {
+                                detect_withdrawn: event.target.checked,
+                              })
+                            }
+                          />
+                          <span>Detect withdrawn</span>
+                        </label>
                         <label className="field">
                           <span>Rotation Mode</span>
                           <select
@@ -604,6 +627,13 @@ export default function SystemPage() {
                             }
                           />
                         </label>
+                        {plan.tasks.find((item) => item.job_name === task.job_name)?.url ? (
+                          <p className="muted">
+                            Scope URL:
+                            {" "}
+                            <code>{plan.tasks.find((item) => item.job_name === task.job_name)?.url}</code>
+                          </p>
+                        ) : null}
                       </div>
                     ))}
                   </div>

@@ -38,9 +38,11 @@ class SchedulerTaskResponse(BaseModel):
     job_name: str
     source: str
     command: str
+    url: str | None
     language: str
     limit: int | None
     with_details: bool
+    detect_withdrawn: bool
     rotation_mode: str
     rotation_step: int | None
 
@@ -82,6 +84,7 @@ class SchedulerTaskOverrideRequest(BaseModel):
     job_name: str
     limit: int | None = None
     with_details: bool | None = None
+    detect_withdrawn: bool | None = None
     rotation_mode: str | None = None
     rotation_step: int | None = None
 
@@ -124,6 +127,12 @@ def _plan_guideline(name: str, auto_run: bool, interval_minutes: int | None) -> 
         return (
             "Watchlist probe is a lighter manual verification plan. It keeps the request cost low "
             "and is intended for quick checks while developing or validating the ingest chain."
+        )
+    if name == "centanet_probe":
+        return (
+            "Centanet probe is a manual, low-frequency commercial-source refresh for one monitored "
+            "search result page. Use it to keep a specific second-hand cluster current without turning "
+            "commercial source refresh into a broad crawler."
         )
     return "This plan executes the configured task list with the parameters shown below."
 
@@ -188,9 +197,11 @@ def list_scheduler_plans(session: Session = Depends(get_db_session)) -> list[Sch
                     job_name=task.job_name,
                     source=task.source,
                     command=task.command,
+                    url=task.url,
                     language=task.language,
                     limit=task.limit,
                     with_details=task.with_details,
+                    detect_withdrawn=task.detect_withdrawn,
                     rotation_mode=task.rotation_mode,
                     rotation_step=task.rotation_step,
                 )
@@ -261,6 +272,7 @@ def update_scheduler_plan(
             for key, value in {
                 "limit": item.limit,
                 "with_details": item.with_details,
+                "detect_withdrawn": item.detect_withdrawn,
                 "rotation_mode": item.rotation_mode,
                 "rotation_step": item.rotation_step,
             }.items()
@@ -291,9 +303,11 @@ def update_scheduler_plan(
                 job_name=task.job_name,
                 source=task.source,
                 command=task.command,
+                url=task.url,
                 language=task.language,
                 limit=task.limit,
                 with_details=task.with_details,
+                detect_withdrawn=task.detect_withdrawn,
                 rotation_mode=task.rotation_mode,
                 rotation_step=task.rotation_step,
             )
@@ -339,9 +353,11 @@ def reset_scheduler_plan_override(
                 job_name=task.job_name,
                 source=task.source,
                 command=task.command,
+                url=task.url,
                 language=task.language,
                 limit=task.limit,
                 with_details=task.with_details,
+                detect_withdrawn=task.detect_withdrawn,
                 rotation_mode=task.rotation_mode,
                 rotation_step=task.rotation_step,
             )

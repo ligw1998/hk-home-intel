@@ -25,3 +25,17 @@ language = "en"
 limit = 5
 with_details = false
 rotation_mode = "none"
+
+[plans.centanet_probe]
+description = "Low-frequency manual Centanet refresh for a single monitored search page."
+auto_run = false
+
+[[plans.centanet_probe.tasks]]
+job_name = "centanet_search_refresh"
+source = "centanet"
+command = "centanet_search_refresh"
+url = "https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS"
+limit = 10
+with_details = true
+detect_withdrawn = false
+rotation_mode = "none"

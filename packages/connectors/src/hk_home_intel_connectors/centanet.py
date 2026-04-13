@@ -17,6 +17,7 @@ class CentanetAdapter(SourceAdapter):
     base_url = "https://hk.centanet.com"
     sample_fixture_path = Path(__file__).with_name("fixtures").joinpath("centanet_sample.json")
     sample_search_results_html_path = Path(__file__).with_name("fixtures").joinpath("centanet_search_results_sample.html")
+    sample_detail_html_path = Path(__file__).with_name("fixtures").joinpath("centanet_detail_sample.html")
 
     def discover_developments(self) -> list[RawRecord]:
         return []
@@ -70,6 +71,9 @@ class CentanetAdapter(SourceAdapter):
         return bundles
 
     def fetch_search_results_html(self, url: str) -> str:
+        return fetch_text(url)
+
+    def fetch_listing_detail_html(self, url: str) -> str:
         return fetch_text(url)
 
     def search_results_listing_bundle(
@@ -134,6 +138,57 @@ class CentanetAdapter(SourceAdapter):
             )
         return bundles
 
+    def detail_listing_bundle(
+        self,
+        *,
+        url: str,
+        html_text: str | None = None,
+        html_path: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if html_text is None:
+            if html_path:
+                html_text = Path(html_path).read_text(encoding="utf-8")
+            else:
+                html_text = self.fetch_listing_detail_html(url)
+
+        listing = self._parse_detail_page(html_text, url=url)
+        development = listing["development"]
+        return [
+            {
+                "development": RawRecord(
+                    source=self.source_name,
+                    external_id=str(development["external_id"]),
+                    payload={
+                        "source": self.source_name,
+                        "source_external_id": development["external_id"],
+                        "source_url": development.get("source_url"),
+                        "name_zh": development.get("name_zh"),
+                        "name_en": development.get("name_en"),
+                        "name_translations": development.get("name_translations"),
+                        "address": development.get("address"),
+                        "district": development.get("district"),
+                        "region": development.get("region"),
+                        "lat": development.get("lat"),
+                        "lng": development.get("lng"),
+                        "developer_names": development.get("developer_names"),
+                        "listing_segment": "second_hand",
+                        "source_confidence": "medium",
+                    },
+                    source_url=development.get("source_url"),
+                ),
+                "documents": [],
+                "listings": [
+                    RawRecord(
+                        source=self.source_name,
+                        external_id=str(listing["external_id"]),
+                        payload=listing,
+                        source_url=listing.get("source_url"),
+                    )
+                ],
+                "transactions": [],
+            }
+        ]
+
     def normalize_development(self, record: RawRecord) -> dict[str, Any]:
         payload = record.payload
         return {
@@ -153,7 +208,7 @@ class CentanetAdapter(SourceAdapter):
             "region": payload.get("region"),
             "lat": payload.get("lat"),
             "lng": payload.get("lng"),
-            "developer_names_json": [],
+            "developer_names_json": payload.get("developer_names") or [],
             "listing_segment": "second_hand",
             "source_confidence": SourceConfidence.MEDIUM,
         }
@@ -215,6 +270,101 @@ class CentanetAdapter(SourceAdapter):
         if slug:
             return slug
         return fallback
+
+    def _parse_detail_page(self, html_text: str, *, url: str) -> dict[str, Any]:
+        headline = self._extract_first_match(
+            html_text,
+            r'<div class="mobile-head-info".*?<p[^>]*>(?P<value>[^<]+)</p>',
+        ) or self._extract_page_title_name(html_text)
+        address = self._extract_first_match(
+            html_text,
+            r'<p class="font-mbl-15 flex info-address"[^>]*>.*?<span[^>]*>(?P<value>[^<]+)</span>',
+        )
+        developer_name = self._extract_first_match(
+            html_text,
+            r'<div class="developerName"[^>]*>(?P<value>[^<]+)</div>',
+        )
+        update_date = self._extract_first_match(
+            html_text,
+            r"物業編號：(?P<id>[A-Z0-9]+)\s*·\s*更新日期：(?P<date>\d{4}-\d{2}-\d{2})",
+            group="date",
+        )
+        listing_code = self._extract_first_match(
+            html_text,
+            r"物業編號：(?P<id>[A-Z0-9]+)\s*·\s*更新日期：(?P<date>\d{4}-\d{2}-\d{2})",
+            group="id",
+        ) or self._extract_listing_external_id(url) or "unknown"
+        mortgage = self._extract_first_match(html_text, r"月供：\$(?P<value>[\d,]+)")
+        usable_area = self._extract_first_match(
+            html_text,
+            r'<p class="fs24 a-row"[^>]*>.*?<span class="area"[^>]*>(?P<value>[\d,]+)</span>',
+        )
+        price_per_sqft = self._extract_first_match(html_text, r"\$(?P<value>[\d,]+)\/呎")
+        listing_price = self._extract_offer_price(html_text)
+        bedrooms = self._extract_info_num_value(html_text, "間隔")
+        age_years = self._extract_info_num_value(html_text, "樓齡")
+        orientation = self._extract_info_num_value(html_text, "座向")
+        feature_tags = re.findall(r'<div class="property-tag"[^>]*>.*?<span[^>]*>([^<]+)</span>', html_text, re.S)
+        description = self._extract_first_match(
+            html_text,
+            r'<div class="desc-jx"[^>]*>.*?<p class="desc-content"[^>]*>(?P<value>.*?)</p>',
+        )
+        estate_url = self._extract_first_match(
+            html_text,
+            r'<a href="(?P<value>https://hk\.centanet\.com/estate/[^"]+)" target="_blank" class="hos-button"',
+        )
+        estate_name = self._extract_estate_name(headline or "", estate_url)
+        development_external_id = estate_url.rsplit("/", 1)[-1] if estate_url else f"estate:{estate_name}"
+
+        title = self._clean_text(headline or estate_name or listing_code)
+        development_name = self._clean_text(estate_name or title)
+
+        raw_detail = {
+            "headline": title,
+            "address": address,
+            "developer_name": developer_name,
+            "update_date": update_date,
+            "monthly_payment_hkd": self._parse_int(mortgage),
+            "age_years": self._parse_int(age_years),
+            "orientation": orientation,
+            "feature_tags": [self._clean_text(tag) for tag in feature_tags if self._clean_text(tag)],
+            "description": self._clean_text(description) if description else None,
+            "estate_url": estate_url,
+        }
+
+        return {
+            "external_id": listing_code,
+            "source_url": url,
+            "title": title,
+            "title_translations": {
+                "zh-Hant": title,
+                "zh-Hans": title,
+            },
+            "asking_price_hkd": listing_price,
+            "price_per_sqft": self._parse_int(price_per_sqft),
+            "bedrooms": self._extract_bedrooms(bedrooms),
+            "bathrooms": self._extract_bathrooms(title),
+            "saleable_area_sqft": self._parse_int(usable_area),
+            "gross_area_sqft": None,
+            "status": "active",
+            "development": {
+                "external_id": development_external_id,
+                "source_url": estate_url or url,
+                "name_zh": development_name,
+                "name_en": None,
+                "name_translations": {
+                    "zh-Hant": development_name,
+                    "zh-Hans": development_name,
+                },
+                "address": address,
+                "district": None,
+                "region": None,
+                "lat": None,
+                "lng": None,
+                "developer_names": [part.strip() for part in (developer_name or "").split("/") if part.strip()],
+            },
+            "detail": raw_detail,
+        }
 
     def _parse_search_result_cards(
         self,
@@ -311,11 +461,46 @@ class CentanetAdapter(SourceAdapter):
             return None
         return int(float(number_match.group(1).replace(",", "")) * 10000)
 
+    def _extract_offer_price(self, html_text: str) -> int | None:
+        script_match = re.search(r'"offers":\{"@type":"Offer","priceCurrency":"HKD","price":(?P<price>\d+)\}', html_text)
+        if script_match:
+            return int(script_match.group("price"))
+        return self._extract_current_price_hkd(html_text)
+
     def _extract_listing_external_id(self, href: str) -> str | None:
         match = re.search(r'_([A-Z0-9]+)(?:\?|$)', href)
         if match:
             return match.group(1)
         return None
+
+    def _extract_page_title_name(self, html_text: str) -> str | None:
+        return self._extract_first_match(
+            html_text,
+            r"<title>[^｜]+\｜(?P<value>.+?)\s*｜買樓\s*-\s*中原地產</title>",
+        )
+
+    def _extract_estate_name(self, headline: str, estate_url: str | None) -> str:
+        if estate_url:
+            estate_slug = estate_url.split("/estate/", 1)[-1].split("/", 1)[0]
+            estate_slug = estate_slug.split("-", 1)[0]
+            if estate_slug:
+                return self._clean_text(estate_slug)
+        match = re.match(r"(?P<estate>.+?)\s+\d+期", headline)
+        if match:
+            return self._clean_text(match.group("estate"))
+        return self._clean_text(headline)
+
+    def _extract_info_num_value(self, html_text: str, label: str) -> str | None:
+        pattern = rf"<p class=\"info-tag\"[^>]*>{re.escape(label)}</p>\s*<p[^>]*>(?P<value>[^<]+)</p>"
+        return self._extract_first_match(html_text, pattern)
+
+    def _extract_first_match(self, html_text: str, pattern: str, group: str = "value") -> str | None:
+        match = re.search(pattern, html_text, re.S)
+        if not match:
+            return None
+        value = match.group(group)
+        cleaned = self._clean_text(value)
+        return cleaned or None
 
     def _extract_bedrooms(self, title_sm: str | None) -> int | None:
         if not title_sm:
@@ -341,6 +526,9 @@ class CentanetAdapter(SourceAdapter):
         cleaned = value.replace(",", "").strip()
         if not cleaned:
             return None
+        number_match = re.search(r"\d+", cleaned)
+        if number_match and number_match.group(0) != cleaned:
+            cleaned = number_match.group(0)
         return int(cleaned)
 
     def _absolute_url(self, href: str) -> str:
