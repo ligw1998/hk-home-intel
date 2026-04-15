@@ -119,7 +119,7 @@ function ActivityPageContent() {
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 2</p>
+        <p className="eyebrow">Activity Feed</p>
         <h1>Recent Activity</h1>
         <p className="lead">
           Review what changed recently across refresh runs, source snapshots, and watchlist updates

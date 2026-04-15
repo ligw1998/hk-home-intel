@@ -399,7 +399,7 @@ function MapPageContent() {
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 3B</p>
+        <p className="eyebrow">Map Workspace</p>
         <h1>Preference Map Workspace</h1>
         <p className="lead">
           Start from your actual buying constraints: budget, bedroom preference, property segment,

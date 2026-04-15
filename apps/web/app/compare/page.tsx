@@ -135,7 +135,7 @@ export default async function ComparePage({
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 3C</p>
+        <p className="eyebrow">Compare</p>
         <h1>Development Compare</h1>
         <p className="lead">
           Compare multiple developments side by side, then use the suggested comparables panel to

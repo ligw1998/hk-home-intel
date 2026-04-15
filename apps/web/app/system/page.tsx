@@ -726,7 +726,7 @@ export default function SystemPage() {
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 2</p>
+        <p className="eyebrow">System Monitor</p>
         <h1>System Monitor</h1>
         <p className="lead">
           Track refresh runs, basic dataset volume, and the last ingestion result before a fuller

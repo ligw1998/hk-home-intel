@@ -199,7 +199,7 @@ function ListingFeedPageContent() {
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 3B</p>
+        <p className="eyebrow">Listing Feed</p>
         <h1>Daily Listing Review</h1>
         <p className="lead">
           Review commercial listing changes in a daily workflow: narrow the time window, scan price

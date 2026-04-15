@@ -202,7 +202,7 @@ export default function WatchlistPage() {
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 2</p>
+        <p className="eyebrow">Watchlist</p>
         <h1>Watchlist Workspace</h1>
         <p className="lead">
           Review your shortlisted developments in one place, update stage, add notes, and

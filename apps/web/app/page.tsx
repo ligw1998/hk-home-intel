@@ -88,13 +88,13 @@ export default function HomePage() {
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 3A</p>
+        <p className="eyebrow">Dashboard</p>
         <h1>HK Home Intel</h1>
         <p className="lead">
           Local-first Hong Kong residential property research workspace. The
-          current baseline already exposes the first official SRPE ingest path,
-          a real map workspace, a watchlist board, a system monitor, a recent
-          activity feed, and a commercial listing event feed for early change tracking.
+          Track official and commercial-source housing data in one local workspace:
+          map, watchlist, system monitor, activity feed, listing flow, and
+          development compare.
         </p>
         <div className="hero-actions">
           <Link href="/map">Open map view</Link>
@@ -140,7 +140,7 @@ export default function HomePage() {
         </article>
 
         <article className="panel">
-          <h2>Phase 3A Workspace</h2>
+          <h2>Workspace Overview</h2>
           <ul className="bullet-list">
             <li>Core canonical development, document, listing, and transaction tables</li>
             <li>Official SRPE index and selected development detail import</li>

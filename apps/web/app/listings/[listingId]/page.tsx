@@ -180,7 +180,7 @@ export default function ListingDetailPage() {
   return (
     <main className="page-shell">
       <section className="hero-card">
-        <p className="eyebrow">Phase 3A</p>
+        <p className="eyebrow">Listing Detail</p>
         <h1>{detail?.title ?? "Listing Detail"}</h1>
         <p className="lead">
           Review the normalized commercial listing fields and recent change events for a single source listing.
