@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from hk_home_intel_connectors.base import RawRecord
 from hk_home_intel_connectors.centanet import CentanetAdapter
+from hk_home_intel_connectors.ricacorp import RicacorpAdapter
 from hk_home_intel_connectors.srpe import SRPEAdapter
 from hk_home_intel_domain.enums import ListingStatus, ParseStatus, PriceEventType, SnapshotKind
 from hk_home_intel_domain.normalization import enrich_development_payload
@@ -31,6 +32,7 @@ class ImportSummary:
     transactions_upserted: int = 0
     price_events_created: int = 0
     snapshots_created: int = 0
+    detail_failures: int = 0
 
 
 @dataclass(slots=True)
@@ -49,6 +51,13 @@ class CoordinateBackfillSummary:
     scanned: int = 0
     updated: int = 0
     unresolved: int = 0
+
+
+@dataclass(slots=True)
+class GeographyBackfillSummary:
+    scanned: int = 0
+    updated: int = 0
+    unchanged: int = 0
 
 
 @dataclass(slots=True)
@@ -79,6 +88,7 @@ def import_centanet_search_results(
     html_path: str | None = None,
     limit: int | None = None,
     with_details: bool = False,
+    detail_limit: int | None = None,
     save_detail_snapshots: bool = False,
     detect_withdrawn: bool = False,
 ) -> ImportSummary:
@@ -130,12 +140,19 @@ def import_centanet_search_results(
             for raw_listing in bundle["listings"]
             if raw_listing.source_url
         ]
+        if detail_limit is not None:
+            listing_urls = listing_urls[:detail_limit]
         for listing_url in listing_urls:
-            detail_summary = import_centanet_listing_detail(
-                session,
-                url=listing_url,
-                save_snapshot=save_detail_snapshots,
-            )
+            try:
+                detail_summary = import_centanet_listing_detail(
+                    session,
+                    url=listing_url,
+                    save_snapshot=save_detail_snapshots,
+                )
+            except Exception:
+                session.rollback()
+                summary.detail_failures += 1
+                continue
             summary.developments_created += detail_summary.developments_created
             summary.developments_updated += detail_summary.developments_updated
             summary.documents_upserted += detail_summary.documents_upserted
@@ -143,6 +160,40 @@ def import_centanet_search_results(
             summary.transactions_upserted += detail_summary.transactions_upserted
             summary.price_events_created += detail_summary.price_events_created
             summary.snapshots_created += detail_summary.snapshots_created
+    session.commit()
+    return summary
+
+
+def import_ricacorp_search_results(
+    session: Session,
+    *,
+    url: str,
+    html_path: str | None = None,
+    limit: int | None = None,
+) -> ImportSummary:
+    adapter = RicacorpAdapter()
+    html_text = Path(html_path).read_text(encoding="utf-8") if html_path else adapter.fetch_search_results_html(url)
+    bundles = adapter.search_results_listing_bundle(url=url, html_text=html_text, limit=limit)
+    summary = _import_listing_bundles(
+        session,
+        adapter,
+        bundles,
+    )
+    summary.snapshots_created += create_text_snapshot(
+        session,
+        source=adapter.source_name,
+        object_type="search_page",
+        object_external_id=url,
+        source_url=url,
+        text=html_text,
+        metadata_json={
+            "url": url,
+            "mode": "fixture" if html_path else "live",
+            "html_path": html_path,
+            "listing_count": len(bundles),
+        },
+        parse_status=ParseStatus.PARSED,
+    )
     session.commit()
     return summary
 
@@ -318,6 +369,55 @@ def backfill_development_coordinates(
         development.lat = enriched["lat"]
         development.lng = enriched["lng"]
         summary.updated += 1
+
+    session.commit()
+    return summary
+
+
+def backfill_development_geography(
+    session: Session,
+    *,
+    limit: int | None = None,
+) -> GeographyBackfillSummary:
+    stmt = select(Development).where(Development.source.is_not(None)).order_by(Development.updated_at.desc())
+    if limit:
+        stmt = stmt.limit(limit)
+
+    developments = session.scalars(stmt).all()
+    summary = GeographyBackfillSummary(scanned=len(developments))
+    for development in developments:
+        before = (
+            development.address_normalized,
+            development.district,
+            development.region,
+            development.lat,
+            development.lng,
+        )
+        enriched = enrich_development_payload(
+            {
+                "address_raw": development.address_raw,
+                "district": development.district,
+                "region": development.region,
+                "lat": development.lat,
+                "lng": development.lng,
+            }
+        )
+        development.address_normalized = enriched.get("address_normalized")
+        development.district = enriched.get("district")
+        development.region = enriched.get("region")
+        development.lat = enriched.get("lat")
+        development.lng = enriched.get("lng")
+        after = (
+            development.address_normalized,
+            development.district,
+            development.region,
+            development.lat,
+            development.lng,
+        )
+        if after == before:
+            summary.unchanged += 1
+        else:
+            summary.updated += 1
 
     session.commit()
     return summary

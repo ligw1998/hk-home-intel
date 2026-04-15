@@ -5,6 +5,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from hk_home_intel_connectors.base import RawRecord, SourceAdapter
 from hk_home_intel_connectors.http import fetch_text
@@ -313,6 +314,7 @@ class CentanetAdapter(SourceAdapter):
         estate_name = self._extract_estate_name(headline or "", estate_url)
         development_external_id = estate_url.rsplit("/", 1)[-1] if estate_url else f"estate:{estate_name}"
         lat, lng = self._extract_coordinates(html_text)
+        district_hint = self._extract_district_hint(html_text)
 
         title = self._clean_text(headline or estate_name or listing_code)
         development_name = self._clean_text(estate_name or title)
@@ -357,7 +359,7 @@ class CentanetAdapter(SourceAdapter):
                     "zh-Hans": development_name,
                 },
                 "address": address,
-                "district": None,
+                "district": district_hint,
                 "region": None,
                 "lat": lat,
                 "lng": lng,
@@ -549,6 +551,23 @@ class CentanetAdapter(SourceAdapter):
             return float(object_match.group("lat")), float(object_match.group("lng"))
 
         return None, None
+
+    def _extract_district_hint(self, html_text: str) -> str | None:
+        escaped_match = re.search(
+            r'https:\\u002F\\u002Fhk\.centanet\.com\\u002Ffindproperty\\u002Fdistrict\\u002F(?P<slug>[^"]+?)\\u002F',
+            html_text,
+        )
+        if escaped_match:
+            return self._clean_text(unquote(escaped_match.group("slug")))
+
+        plain_match = re.search(
+            r'https://hk\.centanet\.com/findproperty/district/(?P<slug>[^"]+?)/',
+            html_text,
+        )
+        if plain_match:
+            return self._clean_text(unquote(plain_match.group("slug")))
+
+        return None
 
     def _extract_first_match(self, html_text: str, pattern: str, group: str = "value") -> str | None:
         match = re.search(pattern, html_text, re.S)

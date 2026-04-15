@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
+import { CompareToggleButton } from "../components/compare-toggle-button";
 import { formatListingSegment, SEGMENT_OPTIONS } from "../lib/segment";
 
 type DevelopmentSummary = {
@@ -691,6 +692,11 @@ function MapPageContent() {
               </span>
               <div className="hero-actions">
                 <Link href={`/developments/${selected.id}`}>Open detail page</Link>
+                <Link href={`/compare?ids=${selected.id}`}>Compare</Link>
+                <CompareToggleButton
+                  developmentId={selected.id}
+                  developmentName={selected.display_name ?? selected.id}
+                />
                 <Link href={`/activity?development_id=${selected.id}`}>Recent activity</Link>
                 {selected.source_url ? (
                   <a href={selected.source_url} target="_blank" rel="noreferrer">

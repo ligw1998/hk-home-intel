@@ -64,6 +64,31 @@ type ListingPriceHistory = {
   points: ListingPricePoint[];
 };
 
+type ComparableListing = {
+  id: string;
+  source: string;
+  source_url: string | null;
+  development_id: string;
+  development_name: string | null;
+  district: string | null;
+  region: string | null;
+  title: string | null;
+  asking_price_hkd: number | null;
+  price_per_sqft: number | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  saleable_area_sqft: number | null;
+  status: string;
+  match_score: number;
+  reasons: string[];
+};
+
+type ComparableListingsResponse = {
+  focus_listing_id: string;
+  focus_development_id: string;
+  items: ComparableListing[];
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 function formatPrice(amount: number | null): string {
@@ -93,6 +118,7 @@ export default function ListingDetailPage() {
   const [detail, setDetail] = useState<ListingDetail | null>(null);
   const [events, setEvents] = useState<ListingEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<ListingPriceHistory | null>(null);
+  const [comparables, setComparables] = useState<ComparableListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,10 +131,11 @@ export default function ListingDetailPage() {
     async function load() {
       try {
         setLoading(true);
-        const [detailResponse, eventsResponse, priceHistoryResponse] = await Promise.all([
+        const [detailResponse, eventsResponse, priceHistoryResponse, comparablesResponse] = await Promise.all([
           fetch(`${API_BASE}/api/v1/listings/${listingId}?lang=zh-Hant`),
           fetch(`${API_BASE}/api/v1/listings/${listingId}/events?lang=zh-Hant`),
           fetch(`${API_BASE}/api/v1/listings/${listingId}/price-history`),
+          fetch(`${API_BASE}/api/v1/compare/listings/${listingId}/comparables?limit=6`),
         ]);
         if (!detailResponse.ok) {
           throw new Error(`listing detail HTTP ${detailResponse.status}`);
@@ -119,13 +146,18 @@ export default function ListingDetailPage() {
         if (!priceHistoryResponse.ok) {
           throw new Error(`listing price history HTTP ${priceHistoryResponse.status}`);
         }
+        if (!comparablesResponse.ok) {
+          throw new Error(`listing comparables HTTP ${comparablesResponse.status}`);
+        }
         const detailPayload = (await detailResponse.json()) as ListingDetail;
         const eventsPayload = (await eventsResponse.json()) as ListingEvent[];
         const priceHistoryPayload = (await priceHistoryResponse.json()) as ListingPriceHistory;
+        const comparablesPayload = (await comparablesResponse.json()) as ComparableListingsResponse;
         if (!cancelled) {
           setDetail(detailPayload);
           setEvents(eventsPayload);
           setPriceHistory(priceHistoryPayload);
+          setComparables(comparablesPayload.items);
           setError(null);
         }
       } catch (err) {
@@ -156,6 +188,7 @@ export default function ListingDetailPage() {
         <div className="hero-actions">
           <Link href="/listings">Back to listing feed</Link>
           {detail ? <Link href={`/developments/${detail.development_id}`}>Open development</Link> : null}
+          {detail ? <Link href={`/compare?ids=${detail.development_id}`}>Compare development</Link> : null}
           {detail?.source_url ? (
             <a href={detail.source_url} target="_blank" rel="noreferrer">
               Open source listing
@@ -251,6 +284,43 @@ export default function ListingDetailPage() {
               </>
             ) : (
               <p className="muted">Price history unavailable.</p>
+            )}
+          </article>
+
+          <article className="panel">
+            <h2>Comparable Listings</h2>
+            {comparables.length > 0 ? (
+              <ul className="development-list">
+                {comparables.map((item) => (
+                  <li key={item.id}>
+                    <strong>{item.title ?? item.development_name ?? "Comparable listing"}</strong>
+                    <span>
+                      Score {item.match_score}
+                      {item.reasons.length > 0 ? ` / ${item.reasons.join(" / ")}` : ""}
+                    </span>
+                    <span>
+                      {item.development_name ?? "Unknown development"}
+                      {item.district ? ` / ${item.district}` : ""}
+                    </span>
+                    <span>
+                      {formatPrice(item.asking_price_hkd)}
+                      {item.saleable_area_sqft !== null ? ` / ${item.saleable_area_sqft} sqft` : ""}
+                      {item.bedrooms !== null ? ` / ${item.bedrooms === 0 ? "開放式" : `${item.bedrooms}房`}` : ""}
+                    </span>
+                    <div className="hero-actions">
+                      <Link href={`/listings/${item.id}`}>Open listing detail</Link>
+                      <Link href={`/developments/${item.development_id}`}>Open development</Link>
+                      {item.source_url ? (
+                        <a href={item.source_url} target="_blank" rel="noreferrer">
+                          Open source listing
+                        </a>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">No comparable listings matched the current listing yet.</p>
             )}
           </article>
 

@@ -144,6 +144,41 @@ conda run -n py311 hhi-worker run-commercial-search-monitors --source centanet
 
 第一条会运行单个已保存 monitor；第二条会批量运行某个 source 下的全部 active monitors。后续接入利嘉阁时，会复用同一层 monitor 管理，而不是为第二商业源重复做一套 URL 手工刷新逻辑。
 
+`/system` 页里的 commercial monitor 现在还支持两层上限控制：
+
+- `Default limit`：每次 search refresh 最多处理多少条结果
+- `Detail limit`：当 `with_details = true` 时，最多补多少条 detail 页
+
+推荐把 detail limit 设得比 search limit 更小。这样可以维持较好的 listing 覆盖，同时把最耗时的商业 detail enrichment 控制在重点样本范围内。
+
+如果你想直接低频导入一页真实利嘉阁买盘结果，用于验证第二商业源链路：
+
+```bash
+conda run -n py311 hhi-worker import-ricacorp-search --url 'https://www.ricacorp.com/zh-hk/property/list/buy' --limit 5
+```
+
+当前 Ricacorp 先接的是搜索结果页 parser，能把 `development / listing / price_event` 写入本地；detail enrichment 不是这一轮的重点。
+
+如果你想在当前阶段直接并排比较多个 development，可打开：
+
+```text
+http://localhost:3000/compare?ids=<development_id_1>,<development_id_2>
+```
+
+如果只传一个 development id，compare 页会自动拉同区/同 segment/相近价格带的候选 comparables，方便从单盘详情继续扩成并排比较。
+
+前端当前也已经有 compare tray：
+
+- 首页、地图、watchlist、development detail 都可以直接 `Add to compare`
+- watchlist 页支持 `Add filtered to compare`
+- compare tray 固定显示在页面右下角，可直接进入 `/compare`
+- compare 页本身也支持对已选 development 直接 `Remove from compare`
+
+当前 compare 的推荐策略会尽量避免噪音结果：
+
+- 如果候选盘只是在 broad region 相同，但面积或价格带差异过大，系统会直接不显示
+- 如果没有足够接近的 comparable，compare 页会显示说明文案，而不是硬塞明显不相关的候选
+
 如果你想通过系统页以 plan 的方式低频刷新一个中原搜索页，当前也已经内置了：
 
 - `/system` -> `centanet_probe`
@@ -210,6 +245,14 @@ conda run -n py311 hhi-worker backfill-development-coordinates
 ```
 
 这会对当前库里缺失 `lat/lng` 的 development 做一次基于地址和 district 的回填。
+
+如果你想把已有 commercial development 的 `district / region / address_normalized` 统一规范一遍，并用已有坐标补 broad region：
+
+```bash
+conda run -n py311 hhi-worker backfill-development-geography
+```
+
+这条命令不访问外网，适合在 compare、map、watchlist 依赖地区字段前做一次本地清洗。
 
 如果你要把某个 SRPE 楼盘的官方 PDF 真正下载到本地文件系统：
 

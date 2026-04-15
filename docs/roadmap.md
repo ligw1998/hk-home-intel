@@ -135,6 +135,17 @@
    - 单条 / 批量 refresh
    - 后续第二商业源复用同一入口管理层
 5. 在此基础上再做 compare 页和第二商业源，不把扩源能力做成一堆孤立脚本
+6. compare baseline 先以 development 级 side-by-side 为主
+   - current band
+   - observed range
+   - bedroom mix
+   - source mix
+   - latest listing event
+   - suggested comparables
+7. commercial monitor 进入日常使用后，再补运行策略分层
+   - search result limit
+   - detail enrichment limit
+   - 单条 detail 失败不拖垮整批 refresh
 
 ## Phase 4: 决策辅助
 

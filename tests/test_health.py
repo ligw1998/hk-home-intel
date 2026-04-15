@@ -16,6 +16,7 @@ from hk_home_intel_domain.enums import (
     SourceConfidence,
     WatchlistStage,
 )
+from hk_home_intel_domain.ingestion import backfill_development_geography
 from hk_home_intel_domain.models import (
     CommercialSearchMonitor,
     Development,
@@ -227,6 +228,42 @@ def test_list_developments_supports_preference_filters(isolated_app: TestClient)
     assert payload["items"][0]["active_listing_source_counts"] == {"centanet": 1}
 
 
+def test_backfill_development_geography_infers_region_from_district_and_coordinates(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        district_known = Development(
+            source="ricacorp",
+            source_external_id="geo-dev-1",
+            name_zh="地理推断盤 A",
+            district="九龍塘",
+            region=None,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        coords_known = Development(
+            source="centanet",
+            source_external_id="geo-dev-2",
+            name_zh="地理推断盤 B",
+            district=None,
+            region=None,
+            lat=22.32624,
+            lng=114.15498,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        session.add_all([district_known, coords_known])
+        session.commit()
+
+        summary = backfill_development_geography(session)
+        session.refresh(district_known)
+        session.refresh(coords_known)
+
+    assert summary.updated >= 2
+    assert district_known.district == "Kowloon Tong"
+    assert district_known.region == "Kowloon"
+    assert coords_known.region == "Kowloon"
+
+
 def test_development_detail_exposes_market_snapshot(isolated_app: TestClient) -> None:
     session_factory = get_session_factory()
     with session_factory() as session:
@@ -367,6 +404,213 @@ def test_development_price_history_endpoint_returns_grouped_points(isolated_app:
     assert payload["points"][0]["listing_count"] == 2
     assert payload["points"][0]["min_price_hkd"] == 12800000.0
     assert payload["points"][0]["max_price_hkd"] == 18500000.0
+
+
+def test_compare_endpoints_return_selected_items_and_suggestions(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        focus = Development(
+            source="centanet",
+            source_external_id="cmp-focus-1",
+            name_zh="匯璽",
+            district="Sham Shui Po",
+            region="Kowloon",
+            completion_year=2020,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            developer_names_json=["新鴻基"],
+        )
+        comparable = Development(
+            source="ricacorp",
+            source_external_id="cmp-near-1",
+            name_zh="維港匯III",
+            district="Sham Shui Po",
+            region="Kowloon",
+            completion_year=2021,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            developer_names_json=["會德豐"],
+            aliases_json=["匯璽"],
+        )
+        distant = Development(
+            source="srpe",
+            source_external_id="cmp-far-1",
+            name_zh="山頂盤",
+            district="The Peak Area",
+            region="Hong Kong Island",
+            completion_year=2014,
+            listing_segment=ListingSegment.NEW,
+            source_confidence=SourceConfidence.HIGH,
+            developer_names_json=["山頂發展商"],
+        )
+        session.add_all([focus, comparable, distant])
+        session.flush()
+        focus_listing = Listing(
+            development_id=focus.id,
+            source="centanet",
+            source_listing_id="CMP-FOCUS-1",
+            title="匯璽 2房",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=12_800_000,
+            bedrooms=2,
+            status=ListingStatus.ACTIVE,
+        )
+        comparable_listing = Listing(
+            development_id=comparable.id,
+            source="ricacorp",
+            source_listing_id="CMP-NEAR-1",
+            title="維港匯 2房",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=13_200_000,
+            bedrooms=2,
+            status=ListingStatus.ACTIVE,
+        )
+        distant_listing = Listing(
+            development_id=distant.id,
+            source="srpe",
+            source_listing_id="CMP-FAR-1",
+            title="山頂盤 4房",
+            listing_type=ListingType.NEW,
+            asking_price_hkd=42_000_000,
+            bedrooms=4,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add_all([focus_listing, comparable_listing, distant_listing])
+        session.flush()
+        session.add_all(
+            [
+                PriceEvent(
+                    source="centanet",
+                    development_id=focus.id,
+                    listing_id=focus_listing.id,
+                    event_type=PriceEventType.NEW_LISTING,
+                    new_price_hkd=12_800_000,
+                    new_status="active",
+                    event_at=datetime(2026, 4, 15, 9, 0),
+                ),
+                PriceEvent(
+                    source="ricacorp",
+                    development_id=comparable.id,
+                    listing_id=comparable_listing.id,
+                    event_type=PriceEventType.NEW_LISTING,
+                    new_price_hkd=13_200_000,
+                    new_status="active",
+                    event_at=datetime(2026, 4, 15, 9, 30),
+                ),
+                PriceEvent(
+                    source="srpe",
+                    development_id=distant.id,
+                    listing_id=distant_listing.id,
+                    event_type=PriceEventType.NEW_LISTING,
+                    new_price_hkd=42_000_000,
+                    new_status="active",
+                    event_at=datetime(2026, 4, 15, 10, 0),
+                ),
+            ]
+        )
+        session.commit()
+        focus_id = focus.id
+        comparable_id = comparable.id
+
+    compare_response = isolated_app.get(
+        f"/api/v1/compare/developments?development_id={focus_id}&development_id={comparable_id}"
+    )
+    assert compare_response.status_code == 200
+    compare_payload = compare_response.json()
+    assert compare_payload["focus_development_id"] == focus_id
+    assert len(compare_payload["items"]) == 2
+    assert compare_payload["items"][0]["display_name"] == "匯璽"
+    assert compare_payload["items"][1]["display_name"] == "維港匯III"
+
+    suggestions_response = isolated_app.get(f"/api/v1/compare/developments/{focus_id}/suggestions")
+    assert suggestions_response.status_code == 200
+    suggestions_payload = suggestions_response.json()
+    assert suggestions_payload["focus_development_id"] == focus_id
+    assert suggestions_payload["items"][0]["development"]["display_name"] == "維港匯III"
+    assert suggestions_payload["items"][0]["match_score"] > 0
+    assert "same estate alias" in suggestions_payload["items"][0]["reasons"]
+
+
+def test_compare_listing_comparables_returns_ranked_matches(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        focus_dev = Development(
+            source="centanet",
+            source_external_id="cmp-listing-dev-1",
+            name_zh="匯璽",
+            district="Sham Shui Po",
+            region="Kowloon",
+            completion_year=2020,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        near_dev = Development(
+            source="ricacorp",
+            source_external_id="cmp-listing-dev-2",
+            name_zh="維港匯III",
+            district="Sham Shui Po",
+            region="Kowloon",
+            completion_year=2021,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            aliases_json=["匯璽"],
+        )
+        far_dev = Development(
+            source="ricacorp",
+            source_external_id="cmp-listing-dev-3",
+            name_zh="御景園",
+            district="Yuen Long",
+            region="New Territories",
+            completion_year=1998,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        session.add_all([focus_dev, near_dev, far_dev])
+        session.flush()
+        focus_listing = Listing(
+            development_id=focus_dev.id,
+            source="centanet",
+            source_listing_id="CMP-LISTING-1",
+            title="匯璽 2房",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=8_800_000,
+            saleable_area_sqft=391,
+            bedrooms=2,
+            status=ListingStatus.ACTIVE,
+        )
+        near_listing = Listing(
+            development_id=near_dev.id,
+            source="ricacorp",
+            source_listing_id="CMP-LISTING-2",
+            title="維港匯 2房",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=9_100_000,
+            saleable_area_sqft=405,
+            bedrooms=2,
+            status=ListingStatus.ACTIVE,
+        )
+        far_listing = Listing(
+            development_id=far_dev.id,
+            source="ricacorp",
+            source_listing_id="CMP-LISTING-3",
+            title="御景園 4房",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=4_600_000,
+            saleable_area_sqft=468,
+            bedrooms=4,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add_all([focus_listing, near_listing, far_listing])
+        session.commit()
+        focus_listing_id = focus_listing.id
+
+    response = isolated_app.get(f"/api/v1/compare/listings/{focus_listing_id}/comparables")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["focus_listing_id"] == focus_listing_id
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["development_name"] == "維港匯III"
+    assert "same estate alias" in payload["items"][0]["reasons"]
 
 
 def test_watchlist_upsert_and_list(isolated_app: TestClient) -> None:

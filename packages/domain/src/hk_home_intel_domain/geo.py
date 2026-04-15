@@ -59,3 +59,17 @@ def infer_coordinates(
     if lat is not None and lng is not None:
         return lat, lng
     return district_centroid(district)
+
+
+def infer_region_from_coordinates(
+    *,
+    lat: float | None,
+    lng: float | None,
+) -> str | None:
+    if lat is None or lng is None:
+        return None
+    if lat < 22.30 and 114.10 <= lng <= 114.25:
+        return "Hong Kong Island"
+    if 22.285 <= lat <= 22.37 and 114.10 <= lng <= 114.25:
+        return "Kowloon"
+    return "New Territories"

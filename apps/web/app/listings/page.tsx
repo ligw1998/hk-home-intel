@@ -314,6 +314,7 @@ function ListingFeedPageContent() {
                     <span>Latest: {formatDateTime(item.latestEventAt)}</span>
                     <div className="hero-actions">
                       <Link href={`/developments/${item.developmentId}`}>Open development</Link>
+                      <Link href={`/compare?ids=${item.developmentId}`}>Compare</Link>
                       <Link href={`/listings?development_id=${item.developmentId}`}>Focus feed</Link>
                     </div>
                   </div>

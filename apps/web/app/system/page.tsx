@@ -85,6 +85,8 @@ type MonitorCriteria = {
   max_budget_hkd: number | null;
   bedroom_values: number[];
   max_age_years: number | null;
+  default_limit: number | null;
+  detail_limit: number | null;
 };
 
 type MonitorLatestRun = {
@@ -116,6 +118,7 @@ type CommercialSearchMonitor = {
 };
 
 type MonitorDraft = {
+  source: string;
   name: string;
   search_url: string;
   scope_type: string;
@@ -126,6 +129,8 @@ type MonitorDraft = {
   is_active: boolean;
   with_details: boolean;
   detect_withdrawn: boolean;
+  default_limit: string;
+  detail_limit: string;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -208,6 +213,7 @@ function buildPlanDraft(plan: SchedulerPlan): SchedulerPlanDraft {
 
 function buildMonitorDraft(item: CommercialSearchMonitor): MonitorDraft {
   return {
+    source: item.source,
     name: item.name,
     search_url: item.search_url,
     scope_type: item.scope_type,
@@ -218,6 +224,8 @@ function buildMonitorDraft(item: CommercialSearchMonitor): MonitorDraft {
     is_active: item.is_active,
     with_details: item.with_details,
     detect_withdrawn: item.detect_withdrawn,
+    default_limit: item.criteria.default_limit?.toString() ?? "",
+    detail_limit: item.criteria.detail_limit?.toString() ?? "",
   };
 }
 
@@ -229,6 +237,7 @@ export default function SystemPage() {
   const [monitors, setMonitors] = useState<CommercialSearchMonitor[]>([]);
   const [monitorDrafts, setMonitorDrafts] = useState<Record<string, MonitorDraft>>({});
   const [newMonitor, setNewMonitor] = useState<MonitorDraft>({
+    source: "centanet",
     name: "",
     search_url: "",
     scope_type: "custom",
@@ -239,6 +248,8 @@ export default function SystemPage() {
     is_active: true,
     with_details: true,
     detect_withdrawn: false,
+    default_limit: "20",
+    detail_limit: "10",
   });
   const [runningPlan, setRunningPlan] = useState<string | null>(null);
   const [runningMonitor, setRunningMonitor] = useState<string | null>(null);
@@ -256,7 +267,7 @@ export default function SystemPage() {
           fetch(`${API_BASE}/api/v1/system/overview`),
           fetch(`${API_BASE}/api/v1/system/refresh-jobs?limit=10`),
           fetch(`${API_BASE}/api/v1/system/scheduler-plans`),
-          fetch(`${API_BASE}/api/v1/commercial-search-monitors?source=centanet`),
+          fetch(`${API_BASE}/api/v1/commercial-search-monitors`),
         ]);
         if (!overviewResponse.ok) {
           throw new Error(`overview HTTP ${overviewResponse.status}`);
@@ -304,7 +315,7 @@ export default function SystemPage() {
       fetch(`${API_BASE}/api/v1/system/overview`),
       fetch(`${API_BASE}/api/v1/system/refresh-jobs?limit=10`),
       fetch(`${API_BASE}/api/v1/system/scheduler-plans`),
-      fetch(`${API_BASE}/api/v1/commercial-search-monitors?source=centanet`),
+      fetch(`${API_BASE}/api/v1/commercial-search-monitors`),
     ]);
     if (!overviewResponse.ok || !jobsResponse.ok || !plansResponse.ok || !monitorsResponse.ok) {
       throw new Error("system reload failed");
@@ -515,6 +526,7 @@ export default function SystemPage() {
       ...current,
       [monitorId]: {
         ...(current[monitorId] ?? {
+          source: "centanet",
           name: "",
           search_url: "",
           scope_type: "custom",
@@ -525,6 +537,8 @@ export default function SystemPage() {
           is_active: true,
           with_details: true,
           detect_withdrawn: false,
+          default_limit: "",
+          detail_limit: "",
         }),
         ...patch,
       },
@@ -539,7 +553,7 @@ export default function SystemPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          source: "centanet",
+          source: newMonitor.source,
           name: newMonitor.name,
           search_url: newMonitor.search_url,
           scope_type: newMonitor.scope_type,
@@ -556,6 +570,8 @@ export default function SystemPage() {
             max_budget_hkd: null,
             bedroom_values: [],
             max_age_years: null,
+            default_limit: newMonitor.default_limit === "" ? null : Number(newMonitor.default_limit),
+            detail_limit: newMonitor.detail_limit === "" ? null : Number(newMonitor.detail_limit),
           },
         }),
       });
@@ -564,6 +580,7 @@ export default function SystemPage() {
       }
       await reloadSystem();
       setNewMonitor({
+        source: "centanet",
         name: "",
         search_url: "",
         scope_type: "custom",
@@ -574,6 +591,8 @@ export default function SystemPage() {
         is_active: true,
         with_details: true,
         detect_withdrawn: false,
+        default_limit: "20",
+        detail_limit: "10",
       });
       setInfo("Commercial search monitor created.");
       setError(null);
@@ -597,7 +616,7 @@ export default function SystemPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          source: "centanet",
+          source: draft.source,
           name: draft.name,
           search_url: draft.search_url,
           scope_type: draft.scope_type,
@@ -614,6 +633,8 @@ export default function SystemPage() {
             max_budget_hkd: null,
             bedroom_values: [],
             max_age_years: null,
+            default_limit: draft.default_limit === "" ? null : Number(draft.default_limit),
+            detail_limit: draft.detail_limit === "" ? null : Number(draft.detail_limit),
           },
         }),
       });
@@ -677,14 +698,14 @@ export default function SystemPage() {
     }
   }
 
-  async function runMonitorBatch() {
-    setRunningMonitor("batch");
-    setInfo("Submitting active commercial monitors...");
+  async function runMonitorBatch(source: string) {
+    setRunningMonitor(`batch:${source}`);
+    setInfo(`Submitting active ${source} monitors...`);
     try {
       const response = await fetch(`${API_BASE}/api/v1/commercial-search-monitors/run-batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "centanet", active_only: true }),
+        body: JSON.stringify({ source, active_only: true }),
       });
       if (!response.ok) {
         throw new Error(await extractErrorMessage(response, "run monitor batch failed"));
@@ -692,7 +713,7 @@ export default function SystemPage() {
       const payload = (await response.json()) as RunPlanResponse;
       setRunningJobId(payload.job_id);
       await reloadSystem();
-      setInfo(`Active commercial monitor batch started. Job ${payload.job_id} is now running.`);
+      setInfo(`Active ${source} monitor batch started. Job ${payload.job_id} is now running.`);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -968,18 +989,38 @@ export default function SystemPage() {
           <p className="muted">
             Manage the Centanet search URLs you want to keep under watch. This is the monitored
             entrypoint layer that commercial-source refresh will reuse before we add more sources.
+            Use <code>Default limit</code> to cap how many search results are processed per run, and
+            <code>Detail limit</code> to keep HTML detail enrichment smaller than the search-page scan.
           </p>
           <div className="watchlist-actions">
             <button
               type="button"
               className="action-button"
-              onClick={() => void runMonitorBatch()}
+              onClick={() => void runMonitorBatch("centanet")}
               disabled={runningMonitor !== null || runningPlan !== null || runningDuePlans}
             >
-              {runningMonitor === "batch" ? "Running..." : "Run active monitors"}
+              {runningMonitor === "batch:centanet" ? "Running..." : "Run active Centanet monitors"}
+            </button>
+            <button
+              type="button"
+              className="action-button"
+              onClick={() => void runMonitorBatch("ricacorp")}
+              disabled={runningMonitor !== null || runningPlan !== null || runningDuePlans}
+            >
+              {runningMonitor === "batch:ricacorp" ? "Running..." : "Run active Ricacorp monitors"}
             </button>
           </div>
           <div className="plan-editor">
+            <label className="field">
+              <span>Source</span>
+              <select
+                value={newMonitor.source}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, source: event.target.value }))}
+              >
+                <option value="centanet">centanet</option>
+                <option value="ricacorp">ricacorp</option>
+              </select>
+            </label>
             <label className="field">
               <span>Name</span>
               <input
@@ -1031,6 +1072,26 @@ export default function SystemPage() {
                 type="text"
                 value={newMonitor.note}
                 onChange={(event) => setNewMonitor((current) => ({ ...current, note: event.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>Default limit</span>
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={newMonitor.default_limit}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, default_limit: event.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>Detail limit</span>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={newMonitor.detail_limit}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, detail_limit: event.target.value }))}
               />
             </label>
             <label className="checkbox-field">
@@ -1086,6 +1147,15 @@ export default function SystemPage() {
                       {monitor.latest_run ? `${formatDateTime(monitor.latest_run.started_at)} / ${monitor.latest_run.status}` : "never"}
                     </span>
                     <span>
+                      Default limit:
+                      {" "}
+                      {monitor.criteria.default_limit ?? "all"}
+                      {" / "}
+                      Detail limit:
+                      {" "}
+                      {monitor.criteria.detail_limit ?? "all"}
+                    </span>
+                    <span>
                       URL:
                       {" "}
                       <code>{monitor.search_url}</code>
@@ -1094,6 +1164,16 @@ export default function SystemPage() {
                       <pre className="job-summary">{JSON.stringify(monitor.latest_run.summary, null, 2)}</pre>
                     ) : null}
                     <div className="plan-editor">
+                      <label className="field">
+                        <span>Source</span>
+                        <select
+                          value={draft.source}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { source: event.target.value })}
+                        >
+                          <option value="centanet">centanet</option>
+                          <option value="ricacorp">ricacorp</option>
+                        </select>
+                      </label>
                       <label className="field">
                         <span>Name</span>
                         <input
@@ -1145,6 +1225,26 @@ export default function SystemPage() {
                           type="text"
                           value={draft.note}
                           onChange={(event) => updateMonitorDraft(monitor.id, { note: event.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Default limit</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={200}
+                          value={draft.default_limit}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { default_limit: event.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Detail limit</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={draft.detail_limit}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { detail_limit: event.target.value })}
                         />
                       </label>
                       <label className="checkbox-field">

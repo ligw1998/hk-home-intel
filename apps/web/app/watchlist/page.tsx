@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { CompareToggleButton } from "../components/compare-toggle-button";
+import { addCompareSelection, clearCompareSelections } from "../lib/compare-store";
 import { formatListingSegment } from "../lib/segment";
 
 type WatchlistItem = {
@@ -188,6 +190,15 @@ export default function WatchlistPage() {
     }));
   }
 
+  function addFilteredToCompare() {
+    for (const item of filtered) {
+      addCompareSelection({
+        id: item.development_id,
+        name: item.development_name ?? item.development_id,
+      });
+    }
+  }
+
   return (
     <main className="page-shell">
       <section className="hero-card">
@@ -201,7 +212,14 @@ export default function WatchlistPage() {
           <Link href="/">Back to dashboard</Link>
           <Link href="/activity">Open activity</Link>
           <Link href="/map">Open map view</Link>
+          <Link href="/compare">Open compare</Link>
           <Link href="/system">Open system monitor</Link>
+          <button type="button" onClick={addFilteredToCompare}>
+            Add filtered to compare
+          </button>
+          <button type="button" onClick={() => clearCompareSelections()}>
+            Clear compare tray
+          </button>
         </div>
       </section>
 
@@ -321,6 +339,13 @@ export default function WatchlistPage() {
                     <Link href={`/developments/${item.development_id}`} className="action-link">
                       Open detail
                     </Link>
+                    <Link href={`/compare?ids=${item.development_id}`} className="action-link">
+                      Compare
+                    </Link>
+                    <CompareToggleButton
+                      developmentId={item.development_id}
+                      developmentName={item.development_name ?? item.development_id}
+                    />
                     <Link href={`/listings?development_id=${item.development_id}`} className="action-link">
                       Open listing feed
                     </Link>

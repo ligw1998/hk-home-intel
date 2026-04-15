@@ -3,6 +3,8 @@ import "leaflet/dist/leaflet.css";
 import type { Metadata } from "next";
 import React from "react";
 
+import { CompareTray } from "./components/compare-tray";
+
 export const metadata: Metadata = {
   title: "HK Home Intel",
   description: "Local-first Hong Kong residential property research terminal",
@@ -15,7 +17,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <CompareTray />
+      </body>
     </html>
   );
 }

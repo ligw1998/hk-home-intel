@@ -5,15 +5,18 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from hk_home_intel_api.main import create_app
+from hk_home_intel_connectors.ricacorp import RicacorpAdapter
 from hk_home_intel_connectors.srpe import SRPEAdapter
 from hk_home_intel_domain.ingestion import (
     backfill_centanet_listing_details,
     import_centanet_listing_detail,
     import_centanet_sample,
     import_centanet_search_results,
+    import_ricacorp_search_results,
     import_srpe_all_developments,
     import_srpe_sample,
 )
+from hk_home_intel_domain.enums import PriceEventType
 from hk_home_intel_domain.models import Development, Listing, PriceEvent, SourceSnapshot
 from hk_home_intel_shared.db import get_engine, get_session_factory, reset_db_caches
 from hk_home_intel_shared.models.base import Base
@@ -842,6 +845,61 @@ def test_search_reimport_preserves_existing_centanet_detail_payload(tmp_path: Pa
     reset_db_caches()
 
 
+def test_centanet_search_with_details_tolerates_single_detail_failure(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-detail-failure-tolerant.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_dir = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+    )
+    search_fixture = fixture_dir / "centanet_search_results_sample.html"
+    detail_fixture = fixture_dir / "centanet_detail_sample.html"
+
+    real_import_detail = import_centanet_listing_detail
+
+    def fake_import_detail(session, *, url: str, html_path: str | None = None, save_snapshot: bool = False):
+        if "MXL121" in url:
+            return real_import_detail(
+                session,
+                url=url,
+                html_path=str(detail_fixture),
+                save_snapshot=save_snapshot,
+            )
+        raise RuntimeError("detail timeout")
+
+    monkeypatch.setattr("hk_home_intel_domain.ingestion.import_centanet_listing_detail", fake_import_detail)
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            html_path=str(search_fixture),
+            with_details=True,
+        )
+        listing_count = session.scalar(select(func.count()).select_from(Listing).where(Listing.source == "centanet"))
+
+    assert summary.detail_failures == 1
+    assert summary.listings_upserted >= 3
+    assert listing_count == 2
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
 def test_backfill_centanet_listing_details_enriches_existing_search_rows(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "centanet-backfill-detail.db"
     monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
@@ -1005,6 +1063,41 @@ def test_import_centanet_listing_detail_can_save_on_demand_snapshot(tmp_path: Pa
     assert snapshot is not None
     assert snapshot.file_path is not None
     assert snapshot.snapshot_kind.value == "html"
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_import_ricacorp_search_results_sample(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ricacorp-search.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    adapter = RicacorpAdapter()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = import_ricacorp_search_results(
+            session,
+            url="https://www.ricacorp.com/zh-hk/property/list/buy",
+            html_path=str(adapter.sample_search_results_html_path),
+        )
+        developments = session.scalars(select(Development).where(Development.source == "ricacorp")).all()
+        listings = session.scalars(select(Listing).where(Listing.source == "ricacorp")).all()
+        events = session.scalars(select(PriceEvent).where(PriceEvent.source == "ricacorp")).all()
+
+    assert summary.developments_created == 2
+    assert summary.listings_upserted == 2
+    assert summary.price_events_created == 2
+    assert {item.name_zh for item in developments} == {"逸瓏", "御景園"}
+    assert {item.source_listing_id for item in listings} == {"CF70287432", "CI69062143"}
+    assert {event.event_type for event in events} == {PriceEventType.NEW_LISTING}
 
     engine.dispose()
     clear_settings_cache()

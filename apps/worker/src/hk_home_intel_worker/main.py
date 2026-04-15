@@ -7,10 +7,12 @@ from hk_home_intel_connectors.http import fetch_text
 from hk_home_intel_connectors.srpe import SRPEAdapter
 from hk_home_intel_domain.ingestion import (
     backfill_development_coordinates,
+    backfill_development_geography,
     backfill_centanet_listing_details,
     import_centanet_listing_detail,
     download_srpe_documents_for_development,
     import_centanet_search_results,
+    import_ricacorp_search_results,
     import_centanet_sample,
     import_srpe_all_developments,
     import_srpe_sample,
@@ -52,6 +54,9 @@ def main() -> None:
     if args.command == "import-centanet-detail":
         run_import_centanet_detail(args.url, args.html_path, args.save_snapshot)
         return
+    if args.command == "import-ricacorp-search":
+        run_import_ricacorp_search(args.url, args.html_path, args.limit)
+        return
     if args.command == "run-commercial-search-monitor":
         run_commercial_search_monitor(args.monitor_id, args.limit_override)
         return
@@ -75,6 +80,9 @@ def main() -> None:
         return
     if args.command == "backfill-development-coordinates":
         run_backfill_development_coordinates(args.limit)
+        return
+    if args.command == "backfill-development-geography":
+        run_backfill_development_geography(args.limit)
         return
     if args.command == "backfill-centanet-details":
         run_backfill_centanet_details(args.limit, args.all, args.save_snapshots)
@@ -132,6 +140,11 @@ def build_parser() -> argparse.ArgumentParser:
     centanet_detail_parser.add_argument("--html-path", dest="html_path", default=None)
     centanet_detail_parser.add_argument("--save-snapshot", dest="save_snapshot", action="store_true")
 
+    ricacorp_search_parser = subparsers.add_parser("import-ricacorp-search")
+    ricacorp_search_parser.add_argument("--url", dest="url", required=True)
+    ricacorp_search_parser.add_argument("--html-path", dest="html_path", default=None)
+    ricacorp_search_parser.add_argument("--limit", dest="limit", type=int, default=None)
+
     monitor_parser = subparsers.add_parser("run-commercial-search-monitor")
     monitor_parser.add_argument("--monitor-id", dest="monitor_id", required=True)
     monitor_parser.add_argument("--limit-override", dest="limit_override", type=int, default=None)
@@ -166,6 +179,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     backfill_parser = subparsers.add_parser("backfill-development-coordinates")
     backfill_parser.add_argument("--limit", dest="limit", type=int, default=None)
+
+    geography_backfill_parser = subparsers.add_parser("backfill-development-geography")
+    geography_backfill_parser.add_argument("--limit", dest="limit", type=int, default=None)
 
     centanet_backfill_parser = subparsers.add_parser("backfill-centanet-details")
     centanet_backfill_parser.add_argument("--limit", dest="limit", type=int, default=None)
@@ -209,6 +225,7 @@ def run_import_srpe_sample(path: str | None) -> None:
                 "transactions_upserted": summary.transactions_upserted,
                 "price_events_created": summary.price_events_created,
                 "snapshots_created": summary.snapshots_created,
+                "detail_failures": summary.detail_failures,
             },
             indent=2,
         )
@@ -232,6 +249,7 @@ def run_import_centanet_sample(path: str | None) -> None:
                 "transactions_upserted": summary.transactions_upserted,
                 "price_events_created": summary.price_events_created,
                 "snapshots_created": summary.snapshots_created,
+                "detail_failures": summary.detail_failures,
             },
             indent=2,
             ensure_ascii=False,
@@ -297,6 +315,38 @@ def run_import_centanet_detail(url: str, html_path: str | None, save_snapshot: b
                 "url": url,
                 "html_path": html_path,
                 "save_snapshot": save_snapshot,
+                "developments_created": summary.developments_created,
+                "developments_updated": summary.developments_updated,
+                "documents_upserted": summary.documents_upserted,
+                "listings_upserted": summary.listings_upserted,
+                "transactions_upserted": summary.transactions_upserted,
+                "price_events_created": summary.price_events_created,
+                "snapshots_created": summary.snapshots_created,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+def run_import_ricacorp_search(url: str, html_path: str | None, limit: int | None) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = import_ricacorp_search_results(
+            session,
+            url=url,
+            html_path=html_path,
+            limit=limit,
+        )
+
+    print(
+        json.dumps(
+            {
+                "source": summary.source,
+                "url": url,
+                "html_path": html_path,
+                "limit": limit,
                 "developments_created": summary.developments_created,
                 "developments_updated": summary.developments_updated,
                 "documents_upserted": summary.documents_upserted,
@@ -434,6 +484,25 @@ def run_backfill_development_coordinates(limit: int | None) -> None:
                 "scanned": summary.scanned,
                 "updated": summary.updated,
                 "unresolved": summary.unresolved,
+                "limit": limit,
+            },
+            indent=2,
+        )
+    )
+
+
+def run_backfill_development_geography(limit: int | None) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = backfill_development_geography(session, limit=limit)
+
+    print(
+        json.dumps(
+            {
+                "scanned": summary.scanned,
+                "updated": summary.updated,
+                "unchanged": summary.unchanged,
                 "limit": limit,
             },
             indent=2,

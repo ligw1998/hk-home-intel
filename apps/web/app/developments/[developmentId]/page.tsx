@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { CompareToggleButton } from "../../components/compare-toggle-button";
 import { WatchlistButton } from "../../components/watchlist-button";
 import { formatEventType, formatListingStatus } from "../../lib/listing-events";
 import { formatListingSegment } from "../../lib/segment";
@@ -100,6 +101,28 @@ type DevelopmentPriceHistory = {
   points: DevelopmentPriceHistoryPoint[];
 };
 
+type CompareDevelopmentItem = {
+  id: string;
+  source_url: string | null;
+  display_name: string | null;
+  district: string | null;
+  region: string | null;
+  listing_segment: string;
+  current_min_price_hkd: number | null;
+  current_max_price_hkd: number | null;
+};
+
+type CompareSuggestionItem = {
+  development: CompareDevelopmentItem;
+  match_score: number;
+  reasons: string[];
+};
+
+type CompareSuggestionsResponse = {
+  focus_development_id: string;
+  items: CompareSuggestionItem[];
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 async function fetchDevelopmentDetail(developmentId: string): Promise<DevelopmentDetail | null> {
@@ -139,6 +162,19 @@ async function fetchDevelopmentPriceHistory(
     throw new Error(`development price history HTTP ${response.status}`);
   }
   return (await response.json()) as DevelopmentPriceHistory;
+}
+
+async function fetchDevelopmentComparables(
+  developmentId: string,
+): Promise<CompareSuggestionsResponse> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/compare/developments/${developmentId}/suggestions?limit=6`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    throw new Error(`development comparables HTTP ${response.status}`);
+  }
+  return (await response.json()) as CompareSuggestionsResponse;
 }
 
 function formatPrice(amount: number | null): string {
@@ -266,10 +302,11 @@ export default async function DevelopmentDetailPage({
   params: Promise<{ developmentId: string }>;
 }) {
   const { developmentId } = await params;
-  const [development, events, priceHistory] = await Promise.all([
+  const [development, events, priceHistory, comparables] = await Promise.all([
     fetchDevelopmentDetail(developmentId),
     fetchDevelopmentListingEvents(developmentId),
     fetchDevelopmentPriceHistory(developmentId),
+    fetchDevelopmentComparables(developmentId),
   ]);
   if (!development) {
     notFound();
@@ -289,6 +326,11 @@ export default async function DevelopmentDetailPage({
         <div className="hero-actions">
           <Link href="/">Back to dashboard</Link>
           <Link href={`/map?selected=${development.id}`}>Open in map</Link>
+          <Link href={`/compare?ids=${development.id}`}>Compare view</Link>
+          <CompareToggleButton
+            developmentId={development.id}
+            developmentName={development.display_name ?? development.id}
+          />
           <Link href={`/activity?development_id=${development.id}`}>Recent activity</Link>
           <Link href={`/listings?development_id=${development.id}`}>Listing event feed</Link>
           <Link href="/watchlist">Open watchlist</Link>
@@ -452,6 +494,33 @@ export default async function DevelopmentDetailPage({
             </ul>
           ) : (
             <p className="muted">No active listing rows imported for this development yet.</p>
+          )}
+        </article>
+
+        <article className="panel">
+          <h2>Suggested Comparables</h2>
+          {comparables.items.length > 0 ? (
+            <ul className="development-list">
+              {comparables.items.map((item) => (
+                <li key={item.development.id}>
+                  <strong>{item.development.display_name ?? item.development.id}</strong>
+                  <span>
+                    Score {item.match_score}
+                    {item.reasons.length > 0 ? ` / ${item.reasons.join(" / ")}` : ""}
+                  </span>
+                  <span>
+                    {formatPrice(item.development.current_min_price_hkd)} → {formatPrice(item.development.current_max_price_hkd)}
+                  </span>
+                  <div className="hero-actions">
+                    <Link href={`/compare?ids=${development.id},${item.development.id}`}>Add to compare</Link>
+                    <Link href={`/developments/${item.development.id}`}>Open detail</Link>
+                    <Link href={`/listings?development_id=${item.development.id}`}>Open listing feed</Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No suggested comparables available for this development yet.</p>
           )}
         </article>
 

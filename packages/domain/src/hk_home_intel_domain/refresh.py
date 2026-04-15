@@ -8,7 +8,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from hk_home_intel_domain.enums import JobRunStatus
-from hk_home_intel_domain.ingestion import import_centanet_search_results, import_srpe_all_developments
+from hk_home_intel_domain.ingestion import (
+    import_centanet_search_results,
+    import_ricacorp_search_results,
+    import_srpe_all_developments,
+)
 from hk_home_intel_domain.jobs import finish_job_run, start_job_run
 from hk_home_intel_domain.models import CommercialSearchMonitor, RefreshJobRun
 from hk_home_intel_shared.db import get_session_factory
@@ -119,6 +123,58 @@ def execute_centanet_search_refresh(
         "transactions_upserted": summary.transactions_upserted,
         "price_events_created": summary.price_events_created,
         "snapshots_created": summary.snapshots_created,
+        "detail_failures": summary.detail_failures,
+    }
+    finish_job_run(
+        session,
+        job=job,
+        status=JobRunStatus.SUCCEEDED,
+        summary=result,
+    )
+    return result
+
+
+def execute_ricacorp_search_refresh(
+    session: Session,
+    *,
+    url: str,
+    limit: int | None,
+    trigger_kind: str = "manual",
+    job_name: str = "ricacorp_search_refresh",
+) -> dict[str, Any]:
+    job = start_job_run(
+        session,
+        job_name=job_name,
+        source="ricacorp",
+        trigger_kind=trigger_kind,
+    )
+    try:
+        summary = import_ricacorp_search_results(
+            session,
+            url=url,
+            limit=limit,
+        )
+    except Exception as exc:
+        finish_job_run(
+            session,
+            job=job,
+            status=JobRunStatus.FAILED,
+            error_message=str(exc),
+        )
+        raise
+
+    result = {
+        "job_id": job.id,
+        "source": summary.source,
+        "url": url,
+        "limit": limit,
+        "developments_created": summary.developments_created,
+        "developments_updated": summary.developments_updated,
+        "documents_upserted": summary.documents_upserted,
+        "listings_upserted": summary.listings_upserted,
+        "transactions_upserted": summary.transactions_upserted,
+        "price_events_created": summary.price_events_created,
+        "snapshots_created": summary.snapshots_created,
     }
     finish_job_run(
         session,
@@ -145,7 +201,12 @@ def execute_commercial_search_monitor_refresh(
     if not monitor.is_active and not allow_inactive:
         raise ValueError(f"commercial search monitor is inactive: {monitor_id}")
     if monitor.source != "centanet":
-        raise ValueError(f"unsupported commercial search monitor source: {monitor.source}")
+        if monitor.source != "ricacorp":
+            raise ValueError(f"unsupported commercial search monitor source: {monitor.source}")
+
+    criteria = monitor.criteria_json or {}
+    effective_limit = limit_override if limit_override is not None else criteria.get("default_limit")
+    effective_detail_limit = criteria.get("detail_limit") if monitor.with_details else None
 
     effective_job_name = job_name or f"commercial_monitor:{monitor.id}"
     if job_id is not None:
@@ -160,13 +221,21 @@ def execute_commercial_search_monitor_refresh(
             trigger_kind=trigger_kind,
         )
     try:
-        summary = import_centanet_search_results(
-            session,
-            url=monitor.search_url,
-            limit=limit_override if limit_override is not None else None,
-            with_details=monitor.with_details,
-            detect_withdrawn=monitor.detect_withdrawn,
-        )
+        if monitor.source == "centanet":
+            summary = import_centanet_search_results(
+                session,
+                url=monitor.search_url,
+                limit=effective_limit,
+                with_details=monitor.with_details,
+                detail_limit=effective_detail_limit,
+                detect_withdrawn=monitor.detect_withdrawn,
+            )
+        else:
+            summary = import_ricacorp_search_results(
+                session,
+                url=monitor.search_url,
+                limit=effective_limit,
+            )
     except Exception as exc:
         finish_job_run(
             session,
@@ -182,8 +251,9 @@ def execute_commercial_search_monitor_refresh(
         "monitor_id": monitor.id,
         "monitor_name": monitor.name,
         "url": monitor.search_url,
-        "limit": limit_override,
+        "limit": effective_limit,
         "with_details": monitor.with_details,
+        "detail_limit": effective_detail_limit,
         "detect_withdrawn": monitor.detect_withdrawn,
         "developments_created": summary.developments_created,
         "developments_updated": summary.developments_updated,
@@ -192,6 +262,7 @@ def execute_commercial_search_monitor_refresh(
         "transactions_upserted": summary.transactions_upserted,
         "price_events_created": summary.price_events_created,
         "snapshots_created": summary.snapshots_created,
+        "detail_failures": summary.detail_failures,
     }
     finish_job_run(
         session,

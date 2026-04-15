@@ -154,6 +154,7 @@ def test_execute_refresh_plan_dispatches_centanet_probe(tmp_path: Path, monkeypa
 def test_execute_commercial_search_monitor_refresh_dispatches_centanet_import(tmp_path: Path, monkeypatch) -> None:
     engine = get_engine(f"sqlite:///{tmp_path / 'commercial-monitor.db'}")
     Base.metadata.create_all(engine)
+    captured: dict[str, object] = {}
 
     def fake_import(
         session,
@@ -162,9 +163,19 @@ def test_execute_commercial_search_monitor_refresh_dispatches_centanet_import(tm
         html_path=None,
         limit=None,
         with_details=False,
+        detail_limit=None,
         save_detail_snapshots=False,
         detect_withdrawn=False,
     ):
+        captured.update(
+            {
+                "url": url,
+                "limit": limit,
+                "with_details": with_details,
+                "detail_limit": detail_limit,
+                "detect_withdrawn": detect_withdrawn,
+            }
+        )
         class Summary:
             source = "centanet"
             developments_created = 1
@@ -174,6 +185,7 @@ def test_execute_commercial_search_monitor_refresh_dispatches_centanet_import(tm
             transactions_upserted = 0
             price_events_created = 2
             snapshots_created = 3
+            detail_failures = 0
 
         return Summary()
 
@@ -192,14 +204,72 @@ def test_execute_commercial_search_monitor_refresh_dispatches_centanet_import(tm
             is_active=True,
             with_details=True,
             detect_withdrawn=False,
+            criteria_json={"default_limit": 20, "detail_limit": 8},
         )
         session.add(monitor)
         session.commit()
-        result = execute_commercial_search_monitor_refresh(session, monitor_id=monitor.id, limit_override=12)
+        result = execute_commercial_search_monitor_refresh(session, monitor_id=monitor.id, limit_override=None)
 
     assert result["source"] == "centanet"
     assert result["monitor_name"] == "Cullinan West"
     assert result["listings_upserted"] == 4
+    assert result["limit"] == 20
+    assert result["detail_limit"] == 8
+    assert captured == {
+        "url": "https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+        "limit": 20,
+        "with_details": True,
+        "detail_limit": 8,
+        "detect_withdrawn": False,
+    }
+
+
+def test_execute_commercial_search_monitor_refresh_dispatches_ricacorp_import(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-monitor-ricacorp.db'}")
+    Base.metadata.create_all(engine)
+
+    def fake_import(
+        session,
+        *,
+        url: str,
+        html_path=None,
+        limit=None,
+    ):
+        class Summary:
+            source = "ricacorp"
+            developments_created = 2
+            developments_updated = 0
+            documents_upserted = 0
+            listings_upserted = 5
+            transactions_upserted = 0
+            price_events_created = 5
+            snapshots_created = 1
+            detail_failures = 0
+
+        return Summary()
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.refresh.import_ricacorp_search_results",
+        fake_import,
+    )
+
+    with Session(engine) as session:
+        monitor = CommercialSearchMonitor(
+            source="ricacorp",
+            name="Ricacorp Buy Feed",
+            search_url="https://www.ricacorp.com/zh-hk/property/list/buy",
+            scope_type="district",
+            district="Kowloon",
+            is_active=True,
+            with_details=False,
+        )
+        session.add(monitor)
+        session.commit()
+        result = execute_commercial_search_monitor_refresh(session, monitor_id=monitor.id, limit_override=5)
+
+    assert result["source"] == "ricacorp"
+    assert result["monitor_name"] == "Ricacorp Buy Feed"
+    assert result["listings_upserted"] == 5
 
 
 def test_execute_commercial_search_monitor_batch_runs_active_monitors(tmp_path: Path, monkeypatch) -> None:

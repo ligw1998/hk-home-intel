@@ -21,6 +21,8 @@ class MonitorCriteria(BaseModel):
     max_budget_hkd: float | None = None
     bedroom_values: list[int] = Field(default_factory=list)
     max_age_years: int | None = None
+    default_limit: int | None = Field(default=None, ge=1, le=200)
+    detail_limit: int | None = Field(default=None, ge=1, le=100)
 
 
 class CommercialSearchMonitorUpsertRequest(BaseModel):

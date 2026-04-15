@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { CompareToggleButton } from "./components/compare-toggle-button";
 import { formatListingSegment } from "./lib/segment";
 
 type HealthResponse = {
@@ -170,6 +171,12 @@ export default function HomePage() {
                   <span>
                     {item.completion_year ? `Completion ${item.completion_year}` : "Year TBD"}
                   </span>
+                  <div className="hero-actions">
+                    <CompareToggleButton
+                      developmentId={item.id}
+                      developmentName={item.display_name ?? item.name_zh ?? item.name_en ?? item.id}
+                    />
+                  </div>
                 </li>
               ))}
             </ul>
