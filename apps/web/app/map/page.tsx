@@ -29,6 +29,10 @@ type DevelopmentListResponse = {
   total: number;
 };
 
+type DevelopmentDetailResponse = DevelopmentSummary & {
+  source_confidence: string;
+};
+
 type WatchlistItem = {
   development_id: string;
   decision_stage: string;
@@ -217,6 +221,7 @@ function MapPageContent() {
     async function loadDevelopments() {
       try {
         setLoading(true);
+        const requestedSelectedId = searchParams.get("selected");
         const params = new URLSearchParams({
           lang: "zh-Hant",
           limit: "500",
@@ -249,11 +254,28 @@ function MapPageContent() {
         }
         const payload = (await developmentResponse.json()) as DevelopmentListResponse;
         if (!cancelled) {
-          const filteredByWatchlist = watchlistOnly
+          let filteredByWatchlist = watchlistOnly
             ? payload.items.filter((item) => Boolean(watchlistByDevelopment[item.id]))
             : payload.items;
+          if (
+            requestedSelectedId &&
+            !filteredByWatchlist.some((item) => item.id === requestedSelectedId)
+          ) {
+            const selectedResponse = await fetch(
+              `${API_BASE}/api/v1/developments/${requestedSelectedId}?lang=zh-Hant`,
+            );
+            if (selectedResponse.ok) {
+              const selectedPayload =
+                (await selectedResponse.json()) as DevelopmentDetailResponse;
+              if (
+                selectedPayload.lat !== null &&
+                selectedPayload.lng !== null
+              ) {
+                filteredByWatchlist = [selectedPayload, ...filteredByWatchlist];
+              }
+            }
+          }
           setDevelopments(filteredByWatchlist);
-          const requestedSelectedId = searchParams.get("selected");
           setSelectedId((current) => {
             if (requestedSelectedId && filteredByWatchlist.some((item) => item.id === requestedSelectedId)) {
               return requestedSelectedId;

@@ -136,9 +136,6 @@ export function DevelopmentLeafletMap({
                   <span>{formatListingSegment(item.listing_segment)}</span>
                   {watchlistStage ? <span>Watchlist / {watchlistStage}</span> : null}
                   <div className="map-popup-actions">
-                    <button type="button" className="action-button" onClick={() => onSelect(item.id)}>
-                      Select
-                    </button>
                     <Link href={`/developments/${item.id}`} className="action-link">
                       Detail
                     </Link>
