@@ -16,7 +16,16 @@ from hk_home_intel_domain.enums import (
     SourceConfidence,
     WatchlistStage,
 )
-from hk_home_intel_domain.models import Development, Listing, PriceEvent, RefreshJobRun, SearchPreset, SourceSnapshot, WatchlistItem
+from hk_home_intel_domain.models import (
+    CommercialSearchMonitor,
+    Development,
+    Listing,
+    PriceEvent,
+    RefreshJobRun,
+    SearchPreset,
+    SourceSnapshot,
+    WatchlistItem,
+)
 from hk_home_intel_shared.db import get_engine, get_session_factory, reset_db_caches
 from hk_home_intel_shared.models.base import Base
 from hk_home_intel_shared.settings import clear_settings_cache
@@ -272,6 +281,94 @@ def test_development_detail_exposes_market_snapshot(isolated_app: TestClient) ->
     assert payload["latest_listing_event_at"] == "2026-04-14T10:30:00"
 
 
+def test_development_price_history_endpoint_returns_grouped_points(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            source="centanet",
+            source_external_id="trail-dev-1",
+            name_zh="盤面軌跡測試盤",
+            district="Kai Tak",
+            region="Kowloon",
+            completion_year=2023,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            lat=22.3,
+            lng=114.2,
+        )
+        session.add(development)
+        session.flush()
+        listing_a = Listing(
+            development_id=development.id,
+            source="centanet",
+            source_listing_id="TRAIL-A",
+            title="盤面軌跡 A",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=12_500_000,
+            status=ListingStatus.ACTIVE,
+        )
+        listing_b = Listing(
+            development_id=development.id,
+            source="centanet",
+            source_listing_id="TRAIL-B",
+            title="盤面軌跡 B",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=18_000_000,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add_all([listing_a, listing_b])
+        session.flush()
+        session.add_all(
+            [
+                PriceEvent(
+                    source="centanet",
+                    development_id=development.id,
+                    listing_id=listing_a.id,
+                    event_type=PriceEventType.NEW_LISTING,
+                    new_price_hkd=12_800_000,
+                    new_status="active",
+                    event_at=datetime(2026, 4, 13, 9, 0),
+                ),
+                PriceEvent(
+                    source="centanet",
+                    development_id=development.id,
+                    listing_id=listing_b.id,
+                    event_type=PriceEventType.NEW_LISTING,
+                    new_price_hkd=18_500_000,
+                    new_status="active",
+                    event_at=datetime(2026, 4, 13, 9, 0),
+                ),
+                PriceEvent(
+                    source="centanet",
+                    development_id=development.id,
+                    listing_id=listing_a.id,
+                    event_type=PriceEventType.PRICE_DROP,
+                    old_price_hkd=12_800_000,
+                    new_price_hkd=12_500_000,
+                    old_status="active",
+                    new_status="active",
+                    event_at=datetime(2026, 4, 14, 11, 15),
+                ),
+            ]
+        )
+        session.commit()
+        development_id = development.id
+
+    response = isolated_app.get(f"/api/v1/developments/{development_id}/price-history")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["development_id"] == development_id
+    assert payload["point_count"] == 2
+    assert payload["overall_min_price_hkd"] == 12500000.0
+    assert payload["overall_max_price_hkd"] == 18500000.0
+    assert payload["current_min_price_hkd"] == 12500000.0
+    assert payload["current_max_price_hkd"] == 18000000.0
+    assert payload["points"][0]["event_count"] == 2
+    assert payload["points"][0]["listing_count"] == 2
+    assert payload["points"][0]["min_price_hkd"] == 12800000.0
+    assert payload["points"][0]["max_price_hkd"] == 18500000.0
+
+
 def test_watchlist_upsert_and_list(isolated_app: TestClient) -> None:
     session_factory = get_session_factory()
     with session_factory() as session:
@@ -308,6 +405,70 @@ def test_watchlist_upsert_and_list(isolated_app: TestClient) -> None:
     list_payload = list_response.json()
     assert len(list_payload) == 1
     assert list_payload[0]["development_name"] == "收藏测试盘"
+    assert list_payload[0]["active_listing_count"] == 0
+    assert list_payload[0]["recent_listing_event_count_7d"] == 0
+
+
+def test_watchlist_includes_listing_market_snapshot(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            source="centanet",
+            source_external_id="watch-dev-1",
+            name_zh="收藏盤面測試盤",
+            district="Kai Tak",
+            region="Kowloon",
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        session.add(development)
+        session.flush()
+        listing = Listing(
+            development_id=development.id,
+            source="centanet",
+            source_listing_id="WATCH-1",
+            title="收藏盤面 2房",
+            listing_type=ListingType.SECOND_HAND,
+            asking_price_hkd=12_300_000,
+            status=ListingStatus.ACTIVE,
+        )
+        session.add(listing)
+        session.flush()
+        session.add(
+            PriceEvent(
+                source="centanet",
+                event_type=PriceEventType.PRICE_DROP,
+                development_id=development.id,
+                listing_id=listing.id,
+                old_price_hkd=12_500_000,
+                new_price_hkd=12_300_000,
+                old_status="active",
+                new_status="active",
+                event_at=datetime.utcnow() - timedelta(days=1),
+            )
+        )
+        session.add(
+            WatchlistItem(
+                development_id=development.id,
+                decision_stage=WatchlistStage.SHORTLISTED,
+                personal_score=8,
+                note="Watch closely",
+                tags_json=["mtr"],
+            )
+        )
+        session.commit()
+        development_id = development.id
+
+    response = isolated_app.get(f"/api/v1/watchlist?development_id={development_id}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["active_listing_count"] == 1
+    assert payload[0]["active_listing_min_price_hkd"] == 12300000.0
+    assert payload[0]["active_listing_max_price_hkd"] == 12300000.0
+    assert payload[0]["recent_listing_event_count_7d"] == 1
+    assert payload[0]["recent_price_move_count_7d"] == 1
+    assert payload[0]["recent_status_move_count_7d"] == 0
 
 
 def test_search_preset_crud(isolated_app: TestClient) -> None:
@@ -363,6 +524,78 @@ def test_search_preset_crud(isolated_app: TestClient) -> None:
     assert delete_response.status_code == 204
 
     final_response = isolated_app.get("/api/v1/search-presets?scope=development_map")
+    assert final_response.status_code == 200
+    assert final_response.json() == []
+
+
+def test_commercial_search_monitor_crud(isolated_app: TestClient) -> None:
+    create_response = isolated_app.post(
+        "/api/v1/commercial-search-monitors",
+        json={
+            "source": "centanet",
+            "name": "Cullinan West Focus",
+            "search_url": "https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            "scope_type": "development",
+            "development_name_hint": "匯璽",
+            "district": "Sham Shui Po",
+            "region": "Kowloon",
+            "note": "Primary test monitor.",
+            "is_active": True,
+            "with_details": True,
+            "detect_withdrawn": False,
+            "tags": ["buyer-focus"],
+            "criteria": {
+                "listing_segments": ["second_hand"],
+                "max_budget_hkd": 16000000,
+                "bedroom_values": [2, 3, 1],
+                "max_age_years": 10,
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    create_payload = create_response.json()
+    assert create_payload["name"] == "Cullinan West Focus"
+    assert create_payload["criteria"]["bedroom_values"] == [2, 3, 1]
+
+    list_response = isolated_app.get("/api/v1/commercial-search-monitors?source=centanet")
+    assert list_response.status_code == 200
+    listed = list_response.json()
+    assert len(listed) == 1
+    assert listed[0]["search_url"].startswith("https://hk.centanet.com/findproperty/list/buy/")
+
+    update_response = isolated_app.patch(
+        f"/api/v1/commercial-search-monitors/{create_payload['id']}",
+        json={
+            "source": "centanet",
+            "name": "Cullinan West Focus Updated",
+            "search_url": "https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            "scope_type": "development",
+            "development_name_hint": "匯璽",
+            "district": "Sham Shui Po",
+            "region": "Kowloon",
+            "note": "Updated monitor.",
+            "is_active": True,
+            "with_details": False,
+            "detect_withdrawn": True,
+            "tags": ["updated"],
+            "criteria": {
+                "listing_segments": ["second_hand"],
+                "max_budget_hkd": 15000000,
+                "bedroom_values": [2],
+                "max_age_years": 15,
+            },
+        },
+    )
+    assert update_response.status_code == 200
+    update_payload = update_response.json()
+    assert update_payload["name"] == "Cullinan West Focus Updated"
+    assert update_payload["with_details"] is False
+    assert update_payload["detect_withdrawn"] is True
+
+    delete_response = isolated_app.delete(f"/api/v1/commercial-search-monitors/{create_payload['id']}")
+    assert delete_response.status_code == 204
+
+    final_response = isolated_app.get("/api/v1/commercial-search-monitors?source=centanet")
     assert final_response.status_code == 200
     assert final_response.json() == []
 
@@ -424,6 +657,62 @@ def test_run_scheduler_plan_endpoint(isolated_app: TestClient, monkeypatch: pyte
     assert payload["plan"] == "watchlist_probe"
 
 
+def test_run_commercial_search_monitor_endpoint(isolated_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        monitor = CommercialSearchMonitor(
+            source="centanet",
+            name="Run Monitor",
+            search_url="https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+            scope_type="development",
+            development_name_hint="匯璽",
+            is_active=True,
+            with_details=True,
+            detect_withdrawn=False,
+        )
+        session.add(monitor)
+        session.commit()
+        monitor_id = monitor.id
+
+    monkeypatch.setattr(
+        "hk_home_intel_api.routes.commercial_search_monitors.launch_commercial_search_monitor_refresh",
+        lambda database_url, monitor_id, limit_override=None, trigger_kind="api": {
+            "job_id": "monitor-job-123",
+            "monitor_id": monitor_id,
+        },
+    )
+
+    response = isolated_app.post(
+        f"/api/v1/commercial-search-monitors/{monitor_id}/run",
+        json={"limit_override": 12},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "accepted"
+    assert payload["job_id"] == "monitor-job-123"
+    assert payload["monitor_id"] == monitor_id
+
+
+def test_run_commercial_search_monitor_batch_endpoint(isolated_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "hk_home_intel_api.routes.commercial_search_monitors.launch_commercial_search_monitor_batch",
+        lambda database_url, source="centanet", active_only=True, limit_override=None, trigger_kind="api": {
+            "job_id": "batch-job-123",
+            "source": source,
+        },
+    )
+
+    response = isolated_app.post(
+        "/api/v1/commercial-search-monitors/run-batch",
+        json={"source": "centanet", "active_only": True, "limit_override": 8},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "accepted"
+    assert payload["job_id"] == "batch-job-123"
+    assert payload["source"] == "centanet"
+
+
 def test_run_due_scheduler_plans_endpoint(isolated_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "hk_home_intel_api.routes.system.launch_due_refresh_plans",
@@ -471,7 +760,7 @@ def test_listings_feed_filters_by_source_and_includes_links(isolated_app: TestCl
         listing = Listing(
             development_id=development.id,
             source="centanet",
-            source_listing_id="MXL121",
+            source_listing_id="TEST-MXL121",
             source_url="https://hk.centanet.com/example/listing",
             title="測試盤",
             listing_type=ListingType.SECOND_HAND,

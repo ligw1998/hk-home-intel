@@ -97,6 +97,25 @@ class DevelopmentDetail(DevelopmentSummary):
     transactions: list[TransactionSummary]
 
 
+class DevelopmentPriceHistoryPoint(BaseModel):
+    recorded_at: str
+    event_count: int
+    listing_count: int
+    min_price_hkd: float | None
+    max_price_hkd: float | None
+
+
+class DevelopmentPriceHistoryResponse(BaseModel):
+    development_id: str
+    point_count: int
+    latest_recorded_at: str | None
+    current_min_price_hkd: float | None
+    current_max_price_hkd: float | None
+    overall_min_price_hkd: float | None
+    overall_max_price_hkd: float | None
+    points: list[DevelopmentPriceHistoryPoint]
+
+
 def _apply_filters(
     stmt,
     district: str | None,
@@ -360,6 +379,96 @@ def _bedroom_preference_rank(item: DevelopmentSummary, bedroom_values: list[int]
     return 999
 
 
+def _build_development_price_history(
+    development: Development,
+    session: Session,
+) -> DevelopmentPriceHistoryResponse:
+    event_rows = session.scalars(
+        select(PriceEvent)
+        .where(
+            PriceEvent.development_id == development.id,
+            PriceEvent.new_price_hkd.is_not(None),
+        )
+        .order_by(PriceEvent.event_at.asc(), PriceEvent.created_at.asc())
+    ).all()
+
+    grouped_points: list[DevelopmentPriceHistoryPoint] = []
+    points_data: list[dict[str, object]] = []
+    for event in event_rows:
+        price_hkd = float(event.new_price_hkd) if event.new_price_hkd is not None else None
+        if price_hkd is None:
+            continue
+        points_data.append(
+            {
+                "recorded_at": event.event_at,
+                "listing_id": event.listing_id,
+                "price_hkd": price_hkd,
+            }
+        )
+
+    if not points_data:
+        current_metrics = _build_listing_metrics(session, [development.id]).get(development.id, {})
+        return DevelopmentPriceHistoryResponse(
+            development_id=development.id,
+            point_count=0,
+            latest_recorded_at=None,
+            current_min_price_hkd=(
+                float(current_metrics["active_listing_min_price_hkd"])
+                if current_metrics.get("active_listing_min_price_hkd") is not None
+                else None
+            ),
+            current_max_price_hkd=(
+                float(current_metrics["active_listing_max_price_hkd"])
+                if current_metrics.get("active_listing_max_price_hkd") is not None
+                else None
+            ),
+            overall_min_price_hkd=None,
+            overall_max_price_hkd=None,
+            points=[],
+        )
+
+    buckets: dict[str, list[dict[str, object]]] = {}
+    for item in points_data:
+        key = item["recorded_at"].isoformat()  # keep event-level timestamps for short-term tracking
+        buckets.setdefault(key, []).append(item)
+
+    for key in sorted(buckets.keys()):
+        bucket = buckets[key]
+        prices = [float(item["price_hkd"]) for item in bucket]
+        listing_ids = {item["listing_id"] for item in bucket if item["listing_id"] is not None}
+        grouped_points.append(
+            DevelopmentPriceHistoryPoint(
+                recorded_at=key,
+                event_count=len(bucket),
+                listing_count=len(listing_ids),
+                min_price_hkd=min(prices) if prices else None,
+                max_price_hkd=max(prices) if prices else None,
+            )
+        )
+
+    all_prices = [float(item["price_hkd"]) for item in points_data]
+    latest_point = grouped_points[-1] if grouped_points else None
+    current_metrics = _build_listing_metrics(session, [development.id]).get(development.id, {})
+    return DevelopmentPriceHistoryResponse(
+        development_id=development.id,
+        point_count=len(grouped_points),
+        latest_recorded_at=latest_point.recorded_at if latest_point else None,
+        current_min_price_hkd=(
+            float(current_metrics["active_listing_min_price_hkd"])
+            if current_metrics.get("active_listing_min_price_hkd") is not None
+            else None
+        ),
+        current_max_price_hkd=(
+            float(current_metrics["active_listing_max_price_hkd"])
+            if current_metrics.get("active_listing_max_price_hkd") is not None
+            else None
+        ),
+        overall_min_price_hkd=min(all_prices) if all_prices else None,
+        overall_max_price_hkd=max(all_prices) if all_prices else None,
+        points=grouped_points,
+    )
+
+
 @router.get("", response_model=DevelopmentListResponse)
 def list_developments(
     district: str | None = None,
@@ -449,3 +558,14 @@ def get_development(
         documents=[_serialize_document(item, lang) for item in documents],
         transactions=[_serialize_transaction(item) for item in transactions],
     )
+
+
+@router.get("/{development_id}/price-history", response_model=DevelopmentPriceHistoryResponse)
+def get_development_price_history(
+    development_id: str,
+    session: Session = Depends(get_db_session),
+) -> DevelopmentPriceHistoryResponse:
+    development = session.get(Development, development_id)
+    if development is None or development.source is None:
+        raise HTTPException(status_code=404, detail="development not found")
+    return _build_development_price_history(development, session)

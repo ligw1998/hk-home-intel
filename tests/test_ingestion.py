@@ -417,6 +417,56 @@ def test_import_centanet_search_results_html_creates_live_like_events(tmp_path: 
     reset_db_caches()
 
 
+def test_import_centanet_generic_buy_page_uses_card_level_development_names(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "centanet-generic-buy.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    fixture_path = (
+        Path(__file__).resolve().parents[1]
+        / "packages"
+        / "connectors"
+        / "src"
+        / "hk_home_intel_connectors"
+        / "fixtures"
+        / "centanet_search_results_sample.html"
+    )
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = import_centanet_search_results(
+            session,
+            url="https://hk.centanet.com/findproperty/list/buy/",
+            html_path=str(fixture_path),
+        )
+
+    assert summary.developments_created == 1
+    assert summary.listings_upserted == 2
+
+    client = TestClient(create_app())
+    response = client.get("/api/v1/developments?limit=10")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["display_name"] == "匯璽"
+
+    feed = client.get("/api/v1/listings/feed?lang=zh-Hant")
+    assert feed.status_code == 200
+    feed_payload = feed.json()
+    assert all(item["development_name"] == "匯璽" for item in feed_payload)
+
+    client.close()
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
 def test_commercial_import_does_not_merge_by_generic_address_only(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "merge-safety.db"
     monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")

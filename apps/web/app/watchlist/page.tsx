@@ -19,6 +19,13 @@ type WatchlistItem = {
   note: string | null;
   tags: string[];
   updated_at: string;
+  active_listing_count: number;
+  active_listing_min_price_hkd: number | null;
+  active_listing_max_price_hkd: number | null;
+  latest_listing_event_at: string | null;
+  recent_listing_event_count_7d: number;
+  recent_price_move_count_7d: number;
+  recent_status_move_count_7d: number;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -40,6 +47,17 @@ type DraftState = {
 
 function formatUpdatedAt(value: string): string {
   return value.slice(0, 16).replace("T", " ");
+}
+
+function formatPrice(amount: number | null): string {
+  if (amount === null) {
+    return "TBD";
+  }
+  return new Intl.NumberFormat("en-HK", {
+    style: "currency",
+    currency: "HKD",
+    maximumFractionDigits: 0,
+  }).format(amount);
 }
 
 export default function WatchlistPage() {
@@ -231,6 +249,18 @@ export default function WatchlistPage() {
                   <div className="watchlist-meta">
                     <span>{item.completion_year ? `Completion ${item.completion_year}` : "Year TBD"}</span>
                     <span>{item.personal_score !== null ? `Score ${item.personal_score}/10` : "Score TBD"}</span>
+                    <span>
+                      {item.active_listing_count > 0
+                        ? `${item.active_listing_count} active / ${formatPrice(item.active_listing_min_price_hkd)} → ${formatPrice(item.active_listing_max_price_hkd)}`
+                        : "No active commercial listings yet"}
+                    </span>
+                    <span>
+                      7d changes {item.recent_listing_event_count_7d}
+                      {` / price ${item.recent_price_move_count_7d} / status ${item.recent_status_move_count_7d}`}
+                    </span>
+                    <span>
+                      Latest listing event {item.latest_listing_event_at ? formatUpdatedAt(item.latest_listing_event_at) : "TBD"}
+                    </span>
                   </div>
 
                   <div className="watchlist-editor">
@@ -290,6 +320,9 @@ export default function WatchlistPage() {
                     </button>
                     <Link href={`/developments/${item.development_id}`} className="action-link">
                       Open detail
+                    </Link>
+                    <Link href={`/listings?development_id=${item.development_id}`} className="action-link">
+                      Open listing feed
                     </Link>
                     {item.source_url ? (
                       <a href={item.source_url} target="_blank" rel="noreferrer" className="action-link">

@@ -464,6 +464,27 @@ a:hover {
   font-size: 0.88rem;
 }
 
+.development-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.development-summary-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 252, 245, 0.68);
+}
+
+.development-summary-card span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 .listing-event-item {
   display: grid;
   gap: 6px;
@@ -820,6 +841,10 @@ a:hover {
   }
 
   .listing-feed-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .development-summary-grid {
     grid-template-columns: 1fr;
   }
 

@@ -151,6 +151,50 @@ function ListingFeedPageContent() {
       items: dayItems,
     }));
   }, [filteredItems]);
+  const developmentSummary = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        developmentId: string;
+        developmentName: string;
+        eventCount: number;
+        priceMoveCount: number;
+        statusMoveCount: number;
+        latestEventAt: string;
+      }
+    >();
+    for (const item of filteredItems) {
+      const key = item.development_id;
+      const existing = grouped.get(key);
+      const isPriceMove = item.event_type === "price_drop" || item.event_type === "price_raise";
+      const isStatusMove =
+        item.event_type === "withdrawn" || item.event_type === "relist" || item.event_type === "sold";
+      if (existing) {
+        existing.eventCount += 1;
+        existing.priceMoveCount += isPriceMove ? 1 : 0;
+        existing.statusMoveCount += isStatusMove ? 1 : 0;
+        if (item.event_at > existing.latestEventAt) {
+          existing.latestEventAt = item.event_at;
+        }
+      } else {
+        grouped.set(key, {
+          developmentId: item.development_id,
+          developmentName: item.development_name ?? "Unknown development",
+          eventCount: 1,
+          priceMoveCount: isPriceMove ? 1 : 0,
+          statusMoveCount: isStatusMove ? 1 : 0,
+          latestEventAt: item.event_at,
+        });
+      }
+    }
+    return Array.from(grouped.values()).sort((left, right) => {
+      return (
+        right.eventCount - left.eventCount ||
+        right.priceMoveCount - left.priceMoveCount ||
+        right.latestEventAt.localeCompare(left.latestEventAt)
+      );
+    });
+  }, [filteredItems]);
 
   return (
     <main className="page-shell">
@@ -253,6 +297,31 @@ function ListingFeedPageContent() {
         </article>
 
         <article className="panel detail-span-2">
+          {!loading && !error && developmentSummary.length > 0 ? (
+            <>
+              <h2>Developments in View</h2>
+              <div className="development-summary-grid">
+                {developmentSummary.slice(0, 8).map((item) => (
+                  <div key={item.developmentId} className="development-summary-card">
+                    <div className="listing-event-head">
+                      <strong>{item.developmentName}</strong>
+                      <span className="status-pill">{item.eventCount} events</span>
+                    </div>
+                    <span>
+                      {item.priceMoveCount} price move{item.priceMoveCount === 1 ? "" : "s"} / {item.statusMoveCount} status move
+                      {item.statusMoveCount === 1 ? "" : "s"}
+                    </span>
+                    <span>Latest: {formatDateTime(item.latestEventAt)}</span>
+                    <div className="hero-actions">
+                      <Link href={`/developments/${item.developmentId}`}>Open development</Link>
+                      <Link href={`/listings?development_id=${item.developmentId}`}>Focus feed</Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+
           <h2>Recent Events</h2>
           {!loading && !error ? (
             <div className="listing-feed-stats">

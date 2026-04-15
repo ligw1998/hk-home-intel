@@ -135,6 +135,15 @@ conda run -n py311 hhi-worker backfill-centanet-details --limit 20
 
 这条命令会扫描本地已有的 `centanet` listing，优先补那些仍缺少地址、更新日期、楼龄、座向、简介等 detail 字段的记录。默认不保存 raw HTML；如果你明确想保留重点盘的原始页，再加 `--save-snapshots`。
 
+如果你已经进入 Phase 3C，想把中原搜索结果页 URL 当成一组“受监控入口”来维护，而不是每次手动填单个 URL：
+
+```bash
+conda run -n py311 hhi-worker run-commercial-search-monitor --monitor-id <monitor_id>
+conda run -n py311 hhi-worker run-commercial-search-monitors --source centanet
+```
+
+第一条会运行单个已保存 monitor；第二条会批量运行某个 source 下的全部 active monitors。后续接入利嘉阁时，会复用同一层 monitor 管理，而不是为第二商业源重复做一套 URL 手工刷新逻辑。
+
 如果你想通过系统页以 plan 的方式低频刷新一个中原搜索页，当前也已经内置了：
 
 - `/system` -> `centanet_probe`
@@ -263,6 +272,7 @@ npm run dev:web
 - Development detail: `http://127.0.0.1:3000/developments/<development_id>`
 
 `/system` 页面现在也支持直接从 UI 触发 refresh plan，并能显示 plan 是否 due、下一次运行时间、以及运行到点的自动计划。
+`/system` 页面还新增了 `Commercial Search Monitors`，可在网页里直接创建、编辑、删除和运行受监控的中原搜索入口。
 `/activity` 页面会汇总最近的 refresh jobs、source snapshots、watchlist 更新，并支持按 kind、source、development 过滤。
 
 ## 8. 当前 Phase 0 能力

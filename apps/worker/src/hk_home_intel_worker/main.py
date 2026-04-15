@@ -16,6 +16,8 @@ from hk_home_intel_domain.ingestion import (
     import_srpe_sample,
 )
 from hk_home_intel_domain.refresh import (
+    execute_commercial_search_monitor_batch,
+    execute_commercial_search_monitor_refresh,
     execute_refresh_plan,
     execute_srpe_refresh,
     run_due_refresh_plans,
@@ -49,6 +51,12 @@ def main() -> None:
         return
     if args.command == "import-centanet-detail":
         run_import_centanet_detail(args.url, args.html_path, args.save_snapshot)
+        return
+    if args.command == "run-commercial-search-monitor":
+        run_commercial_search_monitor(args.monitor_id, args.limit_override)
+        return
+    if args.command == "run-commercial-search-monitors":
+        run_commercial_search_monitors(args.source, args.limit_override, args.include_inactive)
         return
     if args.command == "import-srpe-index":
         run_import_srpe_index(args.lang, args.limit, args.offset, args.with_details)
@@ -123,6 +131,15 @@ def build_parser() -> argparse.ArgumentParser:
     centanet_detail_parser.add_argument("--url", dest="url", required=True)
     centanet_detail_parser.add_argument("--html-path", dest="html_path", default=None)
     centanet_detail_parser.add_argument("--save-snapshot", dest="save_snapshot", action="store_true")
+
+    monitor_parser = subparsers.add_parser("run-commercial-search-monitor")
+    monitor_parser.add_argument("--monitor-id", dest="monitor_id", required=True)
+    monitor_parser.add_argument("--limit-override", dest="limit_override", type=int, default=None)
+
+    monitor_batch_parser = subparsers.add_parser("run-commercial-search-monitors")
+    monitor_batch_parser.add_argument("--source", dest="source", default="centanet")
+    monitor_batch_parser.add_argument("--limit-override", dest="limit_override", type=int, default=None)
+    monitor_batch_parser.add_argument("--include-inactive", dest="include_inactive", action="store_true")
 
     import_index_parser = subparsers.add_parser("import-srpe-index")
     import_index_parser.add_argument("--lang", dest="lang", default="en")
@@ -292,6 +309,35 @@ def run_import_centanet_detail(url: str, html_path: str | None, save_snapshot: b
             ensure_ascii=False,
         )
     )
+
+
+def run_commercial_search_monitor(monitor_id: str, limit_override: int | None) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        result = execute_commercial_search_monitor_refresh(
+            session,
+            monitor_id=monitor_id,
+            limit_override=limit_override,
+            trigger_kind="manual",
+        )
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+def run_commercial_search_monitors(source: str, limit_override: int | None, include_inactive: bool) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        result = execute_commercial_search_monitor_batch(
+            session,
+            source=source,
+            active_only=not include_inactive,
+            limit_override=limit_override,
+            trigger_kind="manual",
+        )
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def run_import_srpe_index(language: str, limit: int | None, offset: int, include_details: bool) -> None:

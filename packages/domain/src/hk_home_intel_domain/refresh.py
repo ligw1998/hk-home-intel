@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from hk_home_intel_domain.enums import JobRunStatus
 from hk_home_intel_domain.ingestion import import_centanet_search_results, import_srpe_all_developments
 from hk_home_intel_domain.jobs import finish_job_run, start_job_run
-from hk_home_intel_domain.models import RefreshJobRun
+from hk_home_intel_domain.models import CommercialSearchMonitor, RefreshJobRun
 from hk_home_intel_shared.db import get_session_factory
 from hk_home_intel_shared.scheduler import get_due_scheduler_plan_names, load_scheduler_plans
 
@@ -123,6 +123,143 @@ def execute_centanet_search_refresh(
     finish_job_run(
         session,
         job=job,
+        status=JobRunStatus.SUCCEEDED,
+        summary=result,
+    )
+    return result
+
+
+def execute_commercial_search_monitor_refresh(
+    session: Session,
+    *,
+    monitor_id: str,
+    limit_override: int | None = None,
+    trigger_kind: str = "manual",
+    job_name: str | None = None,
+    job_id: str | None = None,
+    allow_inactive: bool = False,
+) -> dict[str, Any]:
+    monitor = session.get(CommercialSearchMonitor, monitor_id)
+    if monitor is None:
+        raise ValueError(f"commercial search monitor not found: {monitor_id}")
+    if not monitor.is_active and not allow_inactive:
+        raise ValueError(f"commercial search monitor is inactive: {monitor_id}")
+    if monitor.source != "centanet":
+        raise ValueError(f"unsupported commercial search monitor source: {monitor.source}")
+
+    effective_job_name = job_name or f"commercial_monitor:{monitor.id}"
+    if job_id is not None:
+        job = session.get(RefreshJobRun, job_id)
+        if job is None:
+            raise ValueError(f"commercial search monitor job not found: {job_id}")
+    else:
+        job = start_job_run(
+            session,
+            job_name=effective_job_name,
+            source=monitor.source,
+            trigger_kind=trigger_kind,
+        )
+    try:
+        summary = import_centanet_search_results(
+            session,
+            url=monitor.search_url,
+            limit=limit_override if limit_override is not None else None,
+            with_details=monitor.with_details,
+            detect_withdrawn=monitor.detect_withdrawn,
+        )
+    except Exception as exc:
+        finish_job_run(
+            session,
+            job=job,
+            status=JobRunStatus.FAILED,
+            error_message=str(exc),
+        )
+        raise
+
+    result = {
+        "job_id": job.id,
+        "source": monitor.source,
+        "monitor_id": monitor.id,
+        "monitor_name": monitor.name,
+        "url": monitor.search_url,
+        "limit": limit_override,
+        "with_details": monitor.with_details,
+        "detect_withdrawn": monitor.detect_withdrawn,
+        "developments_created": summary.developments_created,
+        "developments_updated": summary.developments_updated,
+        "documents_upserted": summary.documents_upserted,
+        "listings_upserted": summary.listings_upserted,
+        "transactions_upserted": summary.transactions_upserted,
+        "price_events_created": summary.price_events_created,
+        "snapshots_created": summary.snapshots_created,
+    }
+    finish_job_run(
+        session,
+        job=job,
+        status=JobRunStatus.SUCCEEDED,
+        summary=result,
+    )
+    return result
+
+
+def execute_commercial_search_monitor_batch(
+    session: Session,
+    *,
+    source: str = "centanet",
+    active_only: bool = True,
+    limit_override: int | None = None,
+    trigger_kind: str = "manual",
+    job_name: str | None = None,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    query = select(CommercialSearchMonitor).where(CommercialSearchMonitor.source == source)
+    if active_only:
+        query = query.where(CommercialSearchMonitor.is_active.is_(True))
+    monitors = session.scalars(query.order_by(CommercialSearchMonitor.updated_at.desc())).all()
+
+    if job_id is not None:
+        wrapper_job = session.get(RefreshJobRun, job_id)
+        if wrapper_job is None:
+            raise ValueError(f"commercial monitor batch job not found: {job_id}")
+    else:
+        wrapper_job = start_job_run(
+            session,
+            job_name=job_name or f"commercial_monitor_batch:{source}",
+            source=source,
+            trigger_kind=trigger_kind,
+        )
+    try:
+        results: list[dict[str, Any]] = []
+        for monitor in monitors:
+            results.append(
+                execute_commercial_search_monitor_refresh(
+                    session,
+                    monitor_id=monitor.id,
+                    limit_override=limit_override,
+                    trigger_kind="batch",
+                    job_name=f"commercial_monitor:{monitor.id}",
+                    allow_inactive=not active_only,
+                )
+            )
+    except Exception as exc:
+        finish_job_run(
+            session,
+            job=wrapper_job,
+            status=JobRunStatus.FAILED,
+            error_message=str(exc),
+        )
+        raise
+
+    result = {
+        "source": source,
+        "active_only": active_only,
+        "limit_override": limit_override,
+        "monitor_count": len(monitors),
+        "results": results,
+    }
+    finish_job_run(
+        session,
+        job=wrapper_job,
         status=JobRunStatus.SUCCEEDED,
         summary=result,
     )
@@ -275,6 +412,92 @@ def launch_due_refresh_plans(
         "due_plan_names": due_names,
         "run_count": len(launched),
         "launched": launched,
+    }
+
+
+def launch_commercial_search_monitor_refresh(
+    *,
+    database_url: str,
+    monitor_id: str,
+    limit_override: int | None = None,
+    trigger_kind: str = "api",
+) -> dict[str, str]:
+    session_factory = get_session_factory(database_url)
+    with session_factory() as session:
+        monitor = session.get(CommercialSearchMonitor, monitor_id)
+        if monitor is None:
+            raise ValueError(f"commercial search monitor not found: {monitor_id}")
+        if not monitor.is_active:
+            raise ValueError(f"commercial search monitor is inactive: {monitor_id}")
+        job = start_job_run(
+            session,
+            job_name=f"commercial_monitor:{monitor.id}",
+            source=monitor.source,
+            trigger_kind=trigger_kind,
+        )
+        job_id = job.id
+
+    def runner() -> None:
+        with session_factory() as session:
+            try:
+                execute_commercial_search_monitor_refresh(
+                    session,
+                    monitor_id=monitor_id,
+                    limit_override=limit_override,
+                    trigger_kind=trigger_kind,
+                    job_name=f"commercial_monitor:{monitor_id}",
+                    job_id=job_id,
+                )
+            except Exception:
+                # execute_commercial_search_monitor_refresh already records failure
+                return
+
+    thread = threading.Thread(target=runner, name=f"hhi-commercial-monitor-{monitor_id}", daemon=True)
+    thread.start()
+    return {
+        "job_id": job_id,
+        "monitor_id": monitor_id,
+    }
+
+
+def launch_commercial_search_monitor_batch(
+    *,
+    database_url: str,
+    source: str = "centanet",
+    active_only: bool = True,
+    limit_override: int | None = None,
+    trigger_kind: str = "api",
+) -> dict[str, str]:
+    session_factory = get_session_factory(database_url)
+    with session_factory() as session:
+        job = start_job_run(
+            session,
+            job_name=f"commercial_monitor_batch:{source}",
+            source=source,
+            trigger_kind=trigger_kind,
+        )
+        job_id = job.id
+
+    def runner() -> None:
+        with session_factory() as session:
+            try:
+                execute_commercial_search_monitor_batch(
+                    session,
+                    source=source,
+                    active_only=active_only,
+                    limit_override=limit_override,
+                    trigger_kind=trigger_kind,
+                    job_name=f"commercial_monitor_batch:{source}",
+                    job_id=job_id,
+                )
+            except Exception:
+                return
+
+    thread = threading.Thread(target=runner, name=f"hhi-commercial-monitor-batch-{source}", daemon=True)
+    thread.start()
+    return {
+        "job_id": job_id,
+        "source": source,
     }
 
 

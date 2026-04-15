@@ -80,6 +80,54 @@ type SchedulerPlanDraft = {
   tasks: SchedulerTaskDraft[];
 };
 
+type MonitorCriteria = {
+  listing_segments: string[];
+  max_budget_hkd: number | null;
+  bedroom_values: number[];
+  max_age_years: number | null;
+};
+
+type MonitorLatestRun = {
+  id: string;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  summary: Record<string, unknown> | null;
+  error_message: string | null;
+};
+
+type CommercialSearchMonitor = {
+  id: string;
+  source: string;
+  name: string;
+  search_url: string;
+  scope_type: string;
+  development_name_hint: string | null;
+  district: string | null;
+  region: string | null;
+  note: string | null;
+  is_active: boolean;
+  with_details: boolean;
+  detect_withdrawn: boolean;
+  tags: string[];
+  criteria: MonitorCriteria;
+  updated_at: string;
+  latest_run: MonitorLatestRun | null;
+};
+
+type MonitorDraft = {
+  name: string;
+  search_url: string;
+  scope_type: string;
+  development_name_hint: string;
+  district: string;
+  region: string;
+  note: string;
+  is_active: boolean;
+  with_details: boolean;
+  detect_withdrawn: boolean;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 async function extractErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -158,12 +206,42 @@ function buildPlanDraft(plan: SchedulerPlan): SchedulerPlanDraft {
   };
 }
 
+function buildMonitorDraft(item: CommercialSearchMonitor): MonitorDraft {
+  return {
+    name: item.name,
+    search_url: item.search_url,
+    scope_type: item.scope_type,
+    development_name_hint: item.development_name_hint ?? "",
+    district: item.district ?? "",
+    region: item.region ?? "",
+    note: item.note ?? "",
+    is_active: item.is_active,
+    with_details: item.with_details,
+    detect_withdrawn: item.detect_withdrawn,
+  };
+}
+
 export default function SystemPage() {
   const [overview, setOverview] = useState<SystemOverview | null>(null);
   const [jobs, setJobs] = useState<RefreshJobRunSummary[]>([]);
   const [plans, setPlans] = useState<SchedulerPlan[]>([]);
   const [planDrafts, setPlanDrafts] = useState<Record<string, SchedulerPlanDraft>>({});
+  const [monitors, setMonitors] = useState<CommercialSearchMonitor[]>([]);
+  const [monitorDrafts, setMonitorDrafts] = useState<Record<string, MonitorDraft>>({});
+  const [newMonitor, setNewMonitor] = useState<MonitorDraft>({
+    name: "",
+    search_url: "",
+    scope_type: "custom",
+    development_name_hint: "",
+    district: "",
+    region: "",
+    note: "",
+    is_active: true,
+    with_details: true,
+    detect_withdrawn: false,
+  });
   const [runningPlan, setRunningPlan] = useState<string | null>(null);
+  const [runningMonitor, setRunningMonitor] = useState<string | null>(null);
   const [runningJobId, setRunningJobId] = useState<string | null>(null);
   const [runningDuePlans, setRunningDuePlans] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
@@ -174,10 +252,11 @@ export default function SystemPage() {
 
     async function loadSystem() {
       try {
-        const [overviewResponse, jobsResponse, plansResponse] = await Promise.all([
+        const [overviewResponse, jobsResponse, plansResponse, monitorsResponse] = await Promise.all([
           fetch(`${API_BASE}/api/v1/system/overview`),
           fetch(`${API_BASE}/api/v1/system/refresh-jobs?limit=10`),
           fetch(`${API_BASE}/api/v1/system/scheduler-plans`),
+          fetch(`${API_BASE}/api/v1/commercial-search-monitors?source=centanet`),
         ]);
         if (!overviewResponse.ok) {
           throw new Error(`overview HTTP ${overviewResponse.status}`);
@@ -188,15 +267,23 @@ export default function SystemPage() {
         if (!plansResponse.ok) {
           throw new Error(`plans HTTP ${plansResponse.status}`);
         }
+        if (!monitorsResponse.ok) {
+          throw new Error(`monitors HTTP ${monitorsResponse.status}`);
+        }
 
         const overviewPayload = (await overviewResponse.json()) as SystemOverview;
         const jobsPayload = (await jobsResponse.json()) as RefreshJobRunSummary[];
         const plansPayload = (await plansResponse.json()) as SchedulerPlan[];
+        const monitorsPayload = (await monitorsResponse.json()) as CommercialSearchMonitor[];
         if (!cancelled) {
           setOverview(overviewPayload);
           setJobs(jobsPayload);
           setPlans(plansPayload);
           setPlanDrafts(Object.fromEntries(plansPayload.map((plan) => [plan.name, buildPlanDraft(plan)])));
+          setMonitors(monitorsPayload);
+          setMonitorDrafts(
+            Object.fromEntries(monitorsPayload.map((item) => [item.id, buildMonitorDraft(item)])),
+          );
           setError(null);
         }
       } catch (err) {
@@ -213,12 +300,13 @@ export default function SystemPage() {
   }, []);
 
   async function reloadSystem() {
-    const [overviewResponse, jobsResponse, plansResponse] = await Promise.all([
+    const [overviewResponse, jobsResponse, plansResponse, monitorsResponse] = await Promise.all([
       fetch(`${API_BASE}/api/v1/system/overview`),
       fetch(`${API_BASE}/api/v1/system/refresh-jobs?limit=10`),
       fetch(`${API_BASE}/api/v1/system/scheduler-plans`),
+      fetch(`${API_BASE}/api/v1/commercial-search-monitors?source=centanet`),
     ]);
-    if (!overviewResponse.ok || !jobsResponse.ok || !plansResponse.ok) {
+    if (!overviewResponse.ok || !jobsResponse.ok || !plansResponse.ok || !monitorsResponse.ok) {
       throw new Error("system reload failed");
     }
     setOverview((await overviewResponse.json()) as SystemOverview);
@@ -227,6 +315,9 @@ export default function SystemPage() {
     const nextPlans = (await plansResponse.json()) as SchedulerPlan[];
     setPlans(nextPlans);
     setPlanDrafts(Object.fromEntries(nextPlans.map((plan) => [plan.name, buildPlanDraft(plan)])));
+    const nextMonitors = (await monitorsResponse.json()) as CommercialSearchMonitor[];
+    setMonitors(nextMonitors);
+    setMonitorDrafts(Object.fromEntries(nextMonitors.map((item) => [item.id, buildMonitorDraft(item)])));
     return nextJobs;
   }
 
@@ -245,6 +336,7 @@ export default function SystemPage() {
         if (target.status !== "running") {
           setRunningJobId(null);
           setRunningPlan(null);
+          setRunningMonitor(null);
           setInfo(
             target.status === "succeeded"
               ? `Plan run finished: ${target.job_name}`
@@ -415,6 +507,198 @@ export default function SystemPage() {
       setInfo(null);
     } finally {
       setRunningPlan(null);
+    }
+  }
+
+  function updateMonitorDraft(monitorId: string, patch: Partial<MonitorDraft>) {
+    setMonitorDrafts((current) => ({
+      ...current,
+      [monitorId]: {
+        ...(current[monitorId] ?? {
+          name: "",
+          search_url: "",
+          scope_type: "custom",
+          development_name_hint: "",
+          district: "",
+          region: "",
+          note: "",
+          is_active: true,
+          with_details: true,
+          detect_withdrawn: false,
+        }),
+        ...patch,
+      },
+    }));
+  }
+
+  async function createMonitor() {
+    setRunningMonitor("create");
+    setInfo("Creating commercial search monitor...");
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/commercial-search-monitors`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: "centanet",
+          name: newMonitor.name,
+          search_url: newMonitor.search_url,
+          scope_type: newMonitor.scope_type,
+          development_name_hint: newMonitor.development_name_hint || null,
+          district: newMonitor.district || null,
+          region: newMonitor.region || null,
+          note: newMonitor.note || null,
+          is_active: newMonitor.is_active,
+          with_details: newMonitor.with_details,
+          detect_withdrawn: newMonitor.detect_withdrawn,
+          tags: [],
+          criteria: {
+            listing_segments: [],
+            max_budget_hkd: null,
+            bedroom_values: [],
+            max_age_years: null,
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await extractErrorMessage(response, "create monitor failed"));
+      }
+      await reloadSystem();
+      setNewMonitor({
+        name: "",
+        search_url: "",
+        scope_type: "custom",
+        development_name_hint: "",
+        district: "",
+        region: "",
+        note: "",
+        is_active: true,
+        with_details: true,
+        detect_withdrawn: false,
+      });
+      setInfo("Commercial search monitor created.");
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setInfo(null);
+    } finally {
+      setRunningMonitor(null);
+    }
+  }
+
+  async function saveMonitor(monitorId: string) {
+    const draft = monitorDrafts[monitorId];
+    if (!draft) {
+      return;
+    }
+    setRunningMonitor(monitorId);
+    setInfo(`Saving monitor ${draft.name}...`);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/commercial-search-monitors/${monitorId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: "centanet",
+          name: draft.name,
+          search_url: draft.search_url,
+          scope_type: draft.scope_type,
+          development_name_hint: draft.development_name_hint || null,
+          district: draft.district || null,
+          region: draft.region || null,
+          note: draft.note || null,
+          is_active: draft.is_active,
+          with_details: draft.with_details,
+          detect_withdrawn: draft.detect_withdrawn,
+          tags: [],
+          criteria: {
+            listing_segments: [],
+            max_budget_hkd: null,
+            bedroom_values: [],
+            max_age_years: null,
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await extractErrorMessage(response, "save monitor failed"));
+      }
+      await reloadSystem();
+      setInfo(`Saved monitor ${draft.name}.`);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setInfo(null);
+    } finally {
+      setRunningMonitor(null);
+    }
+  }
+
+  async function deleteMonitor(monitorId: string) {
+    setRunningMonitor(monitorId);
+    setInfo("Deleting commercial search monitor...");
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/commercial-search-monitors/${monitorId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        throw new Error(await extractErrorMessage(response, "delete monitor failed"));
+      }
+      await reloadSystem();
+      setInfo("Commercial search monitor deleted.");
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setInfo(null);
+    } finally {
+      setRunningMonitor(null);
+    }
+  }
+
+  async function runMonitor(monitorId: string) {
+    setRunningMonitor(monitorId);
+    setInfo("Submitting commercial search monitor...");
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/commercial-search-monitors/${monitorId}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        throw new Error(await extractErrorMessage(response, "run monitor failed"));
+      }
+      const payload = (await response.json()) as RunPlanResponse;
+      setRunningJobId(payload.job_id);
+      await reloadSystem();
+      setInfo(`Commercial monitor started. Job ${payload.job_id} is now running.`);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setInfo(null);
+      setRunningMonitor(null);
+      setRunningJobId(null);
+    }
+  }
+
+  async function runMonitorBatch() {
+    setRunningMonitor("batch");
+    setInfo("Submitting active commercial monitors...");
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/commercial-search-monitors/run-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "centanet", active_only: true }),
+      });
+      if (!response.ok) {
+        throw new Error(await extractErrorMessage(response, "run monitor batch failed"));
+      }
+      const payload = (await response.json()) as RunPlanResponse;
+      setRunningJobId(payload.job_id);
+      await reloadSystem();
+      setInfo(`Active commercial monitor batch started. Job ${payload.job_id} is now running.`);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setInfo(null);
+      setRunningMonitor(null);
+      setRunningJobId(null);
     }
   }
 
@@ -676,6 +960,252 @@ export default function SystemPage() {
             </ul>
           ) : (
             <p className="muted">No scheduler plans configured yet.</p>
+          )}
+        </article>
+
+        <article className="panel detail-span-2">
+          <h2>Commercial Search Monitors</h2>
+          <p className="muted">
+            Manage the Centanet search URLs you want to keep under watch. This is the monitored
+            entrypoint layer that commercial-source refresh will reuse before we add more sources.
+          </p>
+          <div className="watchlist-actions">
+            <button
+              type="button"
+              className="action-button"
+              onClick={() => void runMonitorBatch()}
+              disabled={runningMonitor !== null || runningPlan !== null || runningDuePlans}
+            >
+              {runningMonitor === "batch" ? "Running..." : "Run active monitors"}
+            </button>
+          </div>
+          <div className="plan-editor">
+            <label className="field">
+              <span>Name</span>
+              <input
+                type="text"
+                value={newMonitor.name}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, name: event.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>Search URL</span>
+              <input
+                type="text"
+                value={newMonitor.search_url}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, search_url: event.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>Scope Type</span>
+              <select
+                value={newMonitor.scope_type}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, scope_type: event.target.value }))}
+              >
+                <option value="custom">custom</option>
+                <option value="development">development</option>
+                <option value="district">district</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Development Hint</span>
+              <input
+                type="text"
+                value={newMonitor.development_name_hint}
+                onChange={(event) =>
+                  setNewMonitor((current) => ({ ...current, development_name_hint: event.target.value }))
+                }
+              />
+            </label>
+            <label className="field">
+              <span>District</span>
+              <input
+                type="text"
+                value={newMonitor.district}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, district: event.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>Note</span>
+              <input
+                type="text"
+                value={newMonitor.note}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, note: event.target.value }))}
+              />
+            </label>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={newMonitor.is_active}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, is_active: event.target.checked }))}
+              />
+              <span>Active</span>
+            </label>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={newMonitor.with_details}
+                onChange={(event) =>
+                  setNewMonitor((current) => ({ ...current, with_details: event.target.checked }))
+                }
+              />
+              <span>With details</span>
+            </label>
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={newMonitor.detect_withdrawn}
+                onChange={(event) =>
+                  setNewMonitor((current) => ({ ...current, detect_withdrawn: event.target.checked }))
+                }
+              />
+              <span>Detect withdrawn</span>
+            </label>
+          </div>
+          <div className="watchlist-actions">
+            <button
+              type="button"
+              className="action-button"
+              onClick={() => void createMonitor()}
+              disabled={runningMonitor !== null || !newMonitor.name || !newMonitor.search_url}
+            >
+              {runningMonitor === "create" ? "Creating..." : "Add monitor"}
+            </button>
+          </div>
+          {monitors.length > 0 ? (
+            <ul className="development-list">
+              {monitors.map((monitor) => {
+                const draft = monitorDrafts[monitor.id] ?? buildMonitorDraft(monitor);
+                return (
+                  <li key={monitor.id}>
+                    <strong>{monitor.name}</strong>
+                    <span>{monitor.source} / {monitor.scope_type}{monitor.is_active ? " / active" : " / paused"}</span>
+                    <span>
+                      Last run:
+                      {" "}
+                      {monitor.latest_run ? `${formatDateTime(monitor.latest_run.started_at)} / ${monitor.latest_run.status}` : "never"}
+                    </span>
+                    <span>
+                      URL:
+                      {" "}
+                      <code>{monitor.search_url}</code>
+                    </span>
+                    {monitor.latest_run?.summary ? (
+                      <pre className="job-summary">{JSON.stringify(monitor.latest_run.summary, null, 2)}</pre>
+                    ) : null}
+                    <div className="plan-editor">
+                      <label className="field">
+                        <span>Name</span>
+                        <input
+                          type="text"
+                          value={draft.name}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { name: event.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Search URL</span>
+                        <input
+                          type="text"
+                          value={draft.search_url}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { search_url: event.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Scope Type</span>
+                        <select
+                          value={draft.scope_type}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { scope_type: event.target.value })}
+                        >
+                          <option value="custom">custom</option>
+                          <option value="development">development</option>
+                          <option value="district">district</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Development Hint</span>
+                        <input
+                          type="text"
+                          value={draft.development_name_hint}
+                          onChange={(event) =>
+                            updateMonitorDraft(monitor.id, { development_name_hint: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>District</span>
+                        <input
+                          type="text"
+                          value={draft.district}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { district: event.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Note</span>
+                        <input
+                          type="text"
+                          value={draft.note}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { note: event.target.value })}
+                        />
+                      </label>
+                      <label className="checkbox-field">
+                        <input
+                          type="checkbox"
+                          checked={draft.is_active}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { is_active: event.target.checked })}
+                        />
+                        <span>Active</span>
+                      </label>
+                      <label className="checkbox-field">
+                        <input
+                          type="checkbox"
+                          checked={draft.with_details}
+                          onChange={(event) => updateMonitorDraft(monitor.id, { with_details: event.target.checked })}
+                        />
+                        <span>With details</span>
+                      </label>
+                      <label className="checkbox-field">
+                        <input
+                          type="checkbox"
+                          checked={draft.detect_withdrawn}
+                          onChange={(event) =>
+                            updateMonitorDraft(monitor.id, { detect_withdrawn: event.target.checked })
+                          }
+                        />
+                        <span>Detect withdrawn</span>
+                      </label>
+                    </div>
+                    <div className="watchlist-actions">
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => void runMonitor(monitor.id)}
+                        disabled={runningMonitor !== null || runningPlan !== null || runningDuePlans}
+                      >
+                        {runningMonitor === monitor.id ? "Running..." : "Run monitor"}
+                      </button>
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => void saveMonitor(monitor.id)}
+                        disabled={runningMonitor !== null || runningPlan !== null || runningDuePlans}
+                      >
+                        {runningMonitor === monitor.id ? "Working..." : "Save monitor"}
+                      </button>
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => void deleteMonitor(monitor.id)}
+                        disabled={runningMonitor !== null || runningPlan !== null || runningDuePlans}
+                      >
+                        Delete monitor
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="muted">No commercial search monitors yet.</p>
           )}
         </article>
       </section>

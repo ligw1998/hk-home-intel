@@ -18,10 +18,16 @@ type DocumentSummary = {
 
 type ListingSummary = {
   id: string;
+  source: string;
   display_title: string | null;
   listing_type: string;
   asking_price_hkd: number | null;
+  price_per_sqft: number | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  saleable_area_sqft: number | null;
   status: string;
+  source_url: string | null;
 };
 
 type TransactionSummary = {
@@ -75,6 +81,25 @@ type DevelopmentDetail = {
   transactions: TransactionSummary[];
 };
 
+type DevelopmentPriceHistoryPoint = {
+  recorded_at: string;
+  event_count: number;
+  listing_count: number;
+  min_price_hkd: number | null;
+  max_price_hkd: number | null;
+};
+
+type DevelopmentPriceHistory = {
+  development_id: string;
+  point_count: number;
+  latest_recorded_at: string | null;
+  current_min_price_hkd: number | null;
+  current_max_price_hkd: number | null;
+  overall_min_price_hkd: number | null;
+  overall_max_price_hkd: number | null;
+  points: DevelopmentPriceHistoryPoint[];
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 async function fetchDevelopmentDetail(developmentId: string): Promise<DevelopmentDetail | null> {
@@ -103,7 +128,31 @@ async function fetchDevelopmentListingEvents(
   return (await response.json()) as ListingFeedItem[];
 }
 
+async function fetchDevelopmentPriceHistory(
+  developmentId: string,
+): Promise<DevelopmentPriceHistory> {
+  const response = await fetch(
+    `${API_BASE}/api/v1/developments/${developmentId}/price-history`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    throw new Error(`development price history HTTP ${response.status}`);
+  }
+  return (await response.json()) as DevelopmentPriceHistory;
+}
+
 function formatPrice(amount: number | null): string {
+  if (amount === null) {
+    return "TBD";
+  }
+  return new Intl.NumberFormat("en-HK", {
+    style: "currency",
+    currency: "HKD",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function formatCompactMoney(amount: number | null): string {
   if (amount === null) {
     return "TBD";
   }
@@ -169,6 +218,16 @@ function formatSourceMix(mix: Record<string, number>): string {
   return parts.length > 0 ? parts.join(" / ") : "No active source rows";
 }
 
+function formatBedroomLabel(value: number | null): string {
+  if (value === null) {
+    return "戶型待補";
+  }
+  if (value === 0) {
+    return "開放式";
+  }
+  return `${value}房`;
+}
+
 function summarizeEvents(items: ListingFeedItem[]): Array<{ label: string; value: number }> {
   const total = items.length;
   const newListings = items.filter((item) => item.event_type === "new_listing").length;
@@ -207,9 +266,10 @@ export default async function DevelopmentDetailPage({
   params: Promise<{ developmentId: string }>;
 }) {
   const { developmentId } = await params;
-  const [development, events] = await Promise.all([
+  const [development, events, priceHistory] = await Promise.all([
     fetchDevelopmentDetail(developmentId),
     fetchDevelopmentListingEvents(developmentId),
+    fetchDevelopmentPriceHistory(developmentId),
   ]);
   if (!development) {
     notFound();
@@ -310,16 +370,83 @@ export default async function DevelopmentDetailPage({
 
         <div className="development-main-stack">
         <article className="panel">
+          <h2>Price Trail</h2>
+          {priceHistory.points.length > 0 ? (
+            <>
+              <div className="listing-feed-stats">
+                <div className="listing-feed-stat">
+                  <strong>{priceHistory.point_count}</strong>
+                  <span>Recorded snapshots</span>
+                </div>
+                <div className="listing-feed-stat">
+                  <strong>{formatPrice(priceHistory.overall_min_price_hkd)}</strong>
+                  <span>Overall min</span>
+                </div>
+                <div className="listing-feed-stat">
+                  <strong>{formatPrice(priceHistory.overall_max_price_hkd)}</strong>
+                  <span>Overall max</span>
+                </div>
+                <div className="listing-feed-stat">
+                  <strong>{formatCompactDateTime(priceHistory.latest_recorded_at)}</strong>
+                  <span>Latest recorded</span>
+                </div>
+              </div>
+              <ul className="listing-event-list compact-listing-history">
+                {priceHistory.points
+                  .slice()
+                  .reverse()
+                  .map((point) => (
+                    <li key={point.recorded_at} className="listing-event-item">
+                      <div className="listing-event-head">
+                        <strong>
+                          {formatPrice(point.min_price_hkd)} → {formatPrice(point.max_price_hkd)}
+                        </strong>
+                        <span className="status-pill">
+                          {point.event_count} event{point.event_count === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <span>{formatDateTime(point.recorded_at)}</span>
+                      <span>
+                        {point.listing_count} listing{point.listing_count === 1 ? "" : "s"} touched
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            </>
+          ) : (
+            <p className="muted">No development-level price trail recorded yet.</p>
+          )}
+        </article>
+
+        <article className="panel">
           <h2>Listings</h2>
           {development.listings.length > 0 ? (
             <ul className="development-list">
               {development.listings.map((item) => (
                 <li key={item.id}>
-                  <strong>{item.display_title ?? "Untitled listing"}</strong>
+                  <strong>
+                    <Link href={`/listings/${item.id}`}>{item.display_title ?? "Untitled listing"}</Link>
+                  </strong>
                   <span>
-                    {item.listing_type.replaceAll("_", " ")} / {formatListingStatus(item.status)}
+                    {formatListingSegment(item.listing_type)} / {formatListingStatus(item.status)} / {item.source}
                   </span>
-                  <span>{formatPrice(item.asking_price_hkd)}</span>
+                  <span>
+                    {formatBedroomLabel(item.bedrooms)}
+                    {item.bathrooms !== null ? ` / ${item.bathrooms}浴` : ""}
+                    {item.saleable_area_sqft !== null ? ` / ${item.saleable_area_sqft} sqft` : ""}
+                  </span>
+                  <span>
+                    {formatCompactMoney(item.asking_price_hkd)}
+                    {item.price_per_sqft !== null ? ` / ${formatCompactMoney(item.price_per_sqft)} psf` : ""}
+                  </span>
+                  <div className="hero-actions">
+                    <Link href={`/listings/${item.id}`}>Open listing detail</Link>
+                    {item.source_url ? (
+                      <a href={item.source_url} target="_blank" rel="noreferrer">
+                        Open source listing
+                      </a>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

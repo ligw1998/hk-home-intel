@@ -91,28 +91,25 @@ class CentanetAdapter(SourceAdapter):
                 html_text = self.fetch_search_results_html(url)
 
         development_name = self._extract_page_development_name(html_text, url)
-        development_external_id = f"estate:{self._extract_page_slug(url, development_name)}"
-        listings = self._parse_search_result_cards(html_text, page_url=url, development_name=development_name)
+        listings = self._parse_search_result_cards(html_text, page_url=url, page_development_name=development_name)
         if limit is not None:
             listings = listings[:limit]
 
         bundles: list[dict[str, Any]] = []
         for listing in listings:
+            development_payload = listing["development"]
             development = {
                 "source": self.source_name,
-                "source_external_id": development_external_id,
-                "source_url": url,
-                "name_zh": development_name,
-                "name_en": None,
-                "name_translations": {
-                    "zh-Hant": development_name,
-                    "zh-Hans": development_name,
-                },
-                "address": None,
-                "district": None,
-                "region": None,
-                "lat": None,
-                "lng": None,
+                "source_external_id": development_payload["external_id"],
+                "source_url": development_payload.get("source_url") or url,
+                "name_zh": development_payload.get("name_zh"),
+                "name_en": development_payload.get("name_en"),
+                "name_translations": development_payload.get("name_translations"),
+                "address": development_payload.get("address"),
+                "district": development_payload.get("district"),
+                "region": development_payload.get("region"),
+                "lat": development_payload.get("lat"),
+                "lng": development_payload.get("lng"),
                 "listing_segment": "second_hand",
                 "source_confidence": "medium",
             }
@@ -120,9 +117,9 @@ class CentanetAdapter(SourceAdapter):
                 {
                     "development": RawRecord(
                         source=self.source_name,
-                        external_id=development_external_id,
+                        external_id=str(development_payload["external_id"]),
                         payload=development,
-                        source_url=url,
+                        source_url=development_payload.get("source_url") or url,
                     ),
                     "documents": [],
                     "listings": [
@@ -374,7 +371,7 @@ class CentanetAdapter(SourceAdapter):
         html_text: str,
         *,
         page_url: str,
-        development_name: str,
+        page_development_name: str,
     ) -> list[dict[str, Any]]:
         pattern = re.compile(
             r'<a[^>]+href="(?P<href>/findproperty/detail/[^"]+)"[^>]+class="property-text"[^>]*>(?P<body>.*?)</a>',
@@ -386,6 +383,12 @@ class CentanetAdapter(SourceAdapter):
             body = match.group("body")
             title_lg = self._extract_class_text(body, "title-lg")
             title_sm = self._extract_class_text(body, "title-sm")
+            development_name = self._extract_search_result_development_name(
+                page_url=page_url,
+                page_development_name=page_development_name,
+                title_lg=title_lg,
+                title_sm=title_sm,
+            )
             title = " ".join(part for part in [title_lg, title_sm] if part).strip() or development_name
             saleable_area_sqft = self._extract_area_sqft(body)
             price_per_sqft = self._extract_price_per_sqft(body)
@@ -411,7 +414,7 @@ class CentanetAdapter(SourceAdapter):
                     "gross_area_sqft": None,
                     "status": "active",
                     "development": {
-                        "external_id": f"estate:{self._extract_page_slug(page_url, development_name)}",
+                        "external_id": f"estate:{development_name}",
                         "source_url": page_url,
                         "name_zh": development_name,
                         "name_en": None,
@@ -432,6 +435,30 @@ class CentanetAdapter(SourceAdapter):
                 }
             )
         return listings
+
+    def _extract_search_result_development_name(
+        self,
+        *,
+        page_url: str,
+        page_development_name: str,
+        title_lg: str | None,
+        title_sm: str | None,
+    ) -> str:
+        if not self._is_generic_search_scope(page_url, page_development_name):
+            return page_development_name
+
+        candidate = self._clean_text(title_lg or title_sm or page_development_name)
+        candidate = re.sub(r"\s+\d+期.*$", "", candidate)
+        candidate = re.sub(r"\s+\d+[A-Z]?座.*$", "", candidate)
+        candidate = re.sub(r"\s+[A-Z]\d+[A-Z]?$", "", candidate)
+        candidate = re.sub(r"\s+\d+[A-Z]?$", "", candidate)
+        candidate = candidate.strip()
+        return candidate or page_development_name
+
+    def _is_generic_search_scope(self, page_url: str, page_development_name: str) -> bool:
+        slug = self._extract_page_slug(page_url, "").lower()
+        normalized = (page_development_name or "").strip().lower()
+        return slug in {"buy", "rent"} or normalized in {"buy", "rent", "centanet search"}
 
     def _extract_class_text(self, body: str, class_name: str) -> str | None:
         match = re.search(rf'<span class="{re.escape(class_name)}"[^>]*>(?P<value>.*?)</span>', body, re.S)

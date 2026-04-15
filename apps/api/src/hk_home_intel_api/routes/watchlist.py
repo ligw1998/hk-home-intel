@@ -1,11 +1,13 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from hk_home_intel_domain.enums import WatchlistStage
+from hk_home_intel_domain.enums import ListingStatus, PriceEventType, WatchlistStage
 from hk_home_intel_domain.i18n import localize_text
-from hk_home_intel_domain.models import Development, WatchlistItem
+from hk_home_intel_domain.models import Development, Listing, PriceEvent, WatchlistItem
 from hk_home_intel_shared.db import get_db_session
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
@@ -40,9 +42,62 @@ class WatchlistItemResponse(BaseModel):
     note: str | None
     tags: list[str]
     updated_at: str
+    active_listing_count: int
+    active_listing_min_price_hkd: float | None
+    active_listing_max_price_hkd: float | None
+    latest_listing_event_at: str | None
+    recent_listing_event_count_7d: int
+    recent_price_move_count_7d: int
+    recent_status_move_count_7d: int
 
 
-def _serialize_watchlist_item(item: WatchlistItem, preferred_language: str) -> WatchlistItemResponse:
+def _build_watchlist_market_snapshot(
+    session: Session,
+    development_id: str,
+) -> dict[str, object]:
+    active_listing_rows = session.scalars(
+        select(Listing)
+        .where(
+            Listing.development_id == development_id,
+            Listing.status == ListingStatus.ACTIVE,
+        )
+        .order_by(Listing.asking_price_hkd.asc().nullslast())
+    ).all()
+    min_price = None
+    max_price = None
+    if active_listing_rows:
+        prices = [float(item.asking_price_hkd) for item in active_listing_rows if item.asking_price_hkd is not None]
+        min_price = min(prices) if prices else None
+        max_price = max(prices) if prices else None
+
+    latest_event_at = session.scalar(
+        select(func.max(PriceEvent.event_at)).where(PriceEvent.development_id == development_id)
+    )
+    cutoff = datetime.utcnow() - timedelta(days=7)
+    recent_events = session.scalars(
+        select(PriceEvent).where(
+            PriceEvent.development_id == development_id,
+            PriceEvent.event_at >= cutoff,
+        )
+    ).all()
+    recent_price_move_count = sum(
+        1 for item in recent_events if item.event_type in {PriceEventType.PRICE_DROP, PriceEventType.PRICE_RAISE}
+    )
+    recent_status_move_count = sum(
+        1 for item in recent_events if item.event_type in {PriceEventType.WITHDRAWN, PriceEventType.RELIST, PriceEventType.SOLD}
+    )
+    return {
+        "active_listing_count": len(active_listing_rows),
+        "active_listing_min_price_hkd": min_price,
+        "active_listing_max_price_hkd": max_price,
+        "latest_listing_event_at": latest_event_at.isoformat() if latest_event_at is not None else None,
+        "recent_listing_event_count_7d": len(recent_events),
+        "recent_price_move_count_7d": recent_price_move_count,
+        "recent_status_move_count_7d": recent_status_move_count,
+    }
+
+
+def _serialize_watchlist_item(item: WatchlistItem, preferred_language: str, session: Session) -> WatchlistItemResponse:
     development = item.development
     development_name = None
     source_url = None
@@ -50,6 +105,7 @@ def _serialize_watchlist_item(item: WatchlistItem, preferred_language: str) -> W
     region = None
     completion_year = None
     listing_segment = None
+    market_snapshot = _build_watchlist_market_snapshot(session, item.development_id)
     if development is not None:
         development_name = localize_text(
             development.name_translations_json or {},
@@ -76,6 +132,13 @@ def _serialize_watchlist_item(item: WatchlistItem, preferred_language: str) -> W
         note=item.note,
         tags=item.tags_json or [],
         updated_at=item.updated_at.isoformat(),
+        active_listing_count=int(market_snapshot["active_listing_count"]),
+        active_listing_min_price_hkd=market_snapshot["active_listing_min_price_hkd"],  # type: ignore[arg-type]
+        active_listing_max_price_hkd=market_snapshot["active_listing_max_price_hkd"],  # type: ignore[arg-type]
+        latest_listing_event_at=market_snapshot["latest_listing_event_at"],  # type: ignore[arg-type]
+        recent_listing_event_count_7d=int(market_snapshot["recent_listing_event_count_7d"]),
+        recent_price_move_count_7d=int(market_snapshot["recent_price_move_count_7d"]),
+        recent_status_move_count_7d=int(market_snapshot["recent_status_move_count_7d"]),
     )
 
 
@@ -89,7 +152,7 @@ def list_watchlist(
     if development_id:
         stmt = stmt.where(WatchlistItem.development_id == development_id)
     items = session.scalars(stmt).all()
-    return [_serialize_watchlist_item(item, lang) for item in items]
+    return [_serialize_watchlist_item(item, lang, session) for item in items]
 
 
 @router.post("", response_model=WatchlistItemResponse, status_code=status.HTTP_201_CREATED)
@@ -125,7 +188,7 @@ def upsert_watchlist_item(
     session.refresh(item)
     if created:
         session.refresh(development)
-    return _serialize_watchlist_item(item, lang)
+    return _serialize_watchlist_item(item, lang, session)
 
 
 @router.patch("/{watchlist_item_id}", response_model=WatchlistItemResponse)
@@ -150,7 +213,7 @@ def update_watchlist_item(
 
     session.commit()
     session.refresh(item)
-    return _serialize_watchlist_item(item, lang)
+    return _serialize_watchlist_item(item, lang, session)
 
 
 @router.delete("/{watchlist_item_id}", status_code=status.HTTP_204_NO_CONTENT)

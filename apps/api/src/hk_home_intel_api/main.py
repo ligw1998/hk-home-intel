@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+from hk_home_intel_api.routes.commercial_search_monitors import router as commercial_search_monitors_router
 from hk_home_intel_api.routes.activity import router as activity_router
 from hk_home_intel_api.routes.developments import router as developments_router
 from hk_home_intel_api.routes.health import router as health_router
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router, prefix=settings.api_v1_prefix)
     app.include_router(activity_router, prefix=settings.api_v1_prefix)
+    app.include_router(commercial_search_monitors_router, prefix=settings.api_v1_prefix)
     app.include_router(developments_router, prefix=settings.api_v1_prefix)
     app.include_router(listings_router, prefix=settings.api_v1_prefix)
     app.include_router(search_presets_router, prefix=settings.api_v1_prefix)
