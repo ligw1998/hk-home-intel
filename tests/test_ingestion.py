@@ -15,6 +15,7 @@ from hk_home_intel_domain.ingestion import (
     import_ricacorp_search_results,
     import_srpe_all_developments,
     import_srpe_sample,
+    upsert_development,
 )
 from hk_home_intel_domain.enums import PriceEventType
 from hk_home_intel_domain.models import Development, Listing, PriceEvent, SourceSnapshot
@@ -498,6 +499,119 @@ def test_commercial_import_does_not_merge_by_generic_address_only(tmp_path: Path
     assert any(item["display_name"] == "啟德海灣" for item in payload["items"])
 
     client.close()
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_upsert_development_merges_cross_source_alias_when_supported_by_location_and_developer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "alias-merge.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        first, created_first = upsert_development(
+            session,
+            {
+                "source": "srpe",
+                "source_external_id": "dev-1",
+                "name_zh": "海盈山",
+                "name_en": "High Horizon",
+                "aliases_json": ["High Horizon Phase 1"],
+                "address_raw": "11 Harbour Road",
+                "district": "Wan Chai",
+                "region": "Hong Kong Island",
+                "developer_names_json": ["Sun Hung Kai"],
+                "listing_segment": "first_hand_remaining",
+            },
+        )
+        second, created_second = upsert_development(
+            session,
+            {
+                "source": "centanet",
+                "source_external_id": "dev-2",
+                "name_zh": "海盈山 第1期",
+                "name_en": "High Horizon Phase 1",
+                "aliases_json": ["High Horizon"],
+                "address_raw": "11 Harbour Road",
+                "district": "Wan Chai",
+                "region": "Hong Kong Island",
+                "developer_names_json": ["Sun Hung Kai Properties"],
+                "listing_segment": "second_hand",
+            },
+        )
+        first_id = first.id
+        second_id = second.id
+        session.commit()
+
+        total = session.scalar(select(func.count()).select_from(Development))
+
+    assert created_first is True
+    assert created_second is False
+    assert first_id == second_id
+    assert total == 1
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_upsert_development_does_not_merge_on_alias_alone_without_other_evidence(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "alias-no-merge.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        first, created_first = upsert_development(
+            session,
+            {
+                "source": "srpe",
+                "source_external_id": "safe-1",
+                "name_zh": "星匯居",
+                "name_en": "Sky Hub",
+                "aliases_json": ["SkyHub Residence"],
+                "listing_segment": "first_hand_remaining",
+            },
+        )
+        second, created_second = upsert_development(
+            session,
+            {
+                "source": "ricacorp",
+                "source_external_id": "safe-2",
+                "name_zh": "天匯居",
+                "name_en": "SkyHub Residence",
+                "aliases_json": ["Sky Hub"],
+                "listing_segment": "second_hand",
+            },
+        )
+        first_id = first.id
+        second_id = second.id
+        session.commit()
+
+        total = session.scalar(select(func.count()).select_from(Development))
+
+    assert created_first is True
+    assert created_second is True
+    assert first_id != second_id
+    assert total == 2
+
     engine.dispose()
     clear_settings_cache()
     reset_db_caches()

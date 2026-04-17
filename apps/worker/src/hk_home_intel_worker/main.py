@@ -17,6 +17,7 @@ from hk_home_intel_domain.ingestion import (
     import_srpe_all_developments,
     import_srpe_sample,
 )
+from hk_home_intel_domain.maintenance import cleanup_runtime_artifacts
 from hk_home_intel_domain.refresh import (
     execute_commercial_search_monitor_batch,
     execute_commercial_search_monitor_refresh,
@@ -86,6 +87,15 @@ def main() -> None:
         return
     if args.command == "backfill-centanet-details":
         run_backfill_centanet_details(args.limit, args.all, args.save_snapshots)
+        return
+    if args.command == "cleanup-runtime-artifacts":
+        run_cleanup_runtime_artifacts(
+            args.refresh_job_days,
+            args.keep_latest_jobs_per_name,
+            args.search_snapshot_days,
+            args.detail_snapshot_days,
+            args.keep_latest_snapshots_per_object,
+        )
         return
     if args.command == "download-srpe-documents":
         run_download_srpe_documents(args.source_external_id, args.force)
@@ -187,6 +197,18 @@ def build_parser() -> argparse.ArgumentParser:
     centanet_backfill_parser.add_argument("--limit", dest="limit", type=int, default=None)
     centanet_backfill_parser.add_argument("--all", dest="all", action="store_true")
     centanet_backfill_parser.add_argument("--save-snapshots", dest="save_snapshots", action="store_true")
+
+    cleanup_parser = subparsers.add_parser("cleanup-runtime-artifacts")
+    cleanup_parser.add_argument("--refresh-job-days", dest="refresh_job_days", type=int, default=30)
+    cleanup_parser.add_argument("--keep-latest-jobs-per-name", dest="keep_latest_jobs_per_name", type=int, default=20)
+    cleanup_parser.add_argument("--search-snapshot-days", dest="search_snapshot_days", type=int, default=14)
+    cleanup_parser.add_argument("--detail-snapshot-days", dest="detail_snapshot_days", type=int, default=7)
+    cleanup_parser.add_argument(
+        "--keep-latest-snapshots-per-object",
+        dest="keep_latest_snapshots_per_object",
+        type=int,
+        default=5,
+    )
 
     download_parser = subparsers.add_parser("download-srpe-documents")
     download_parser.add_argument("--source-external-id", dest="source_external_id", required=True)
@@ -537,6 +559,42 @@ def run_backfill_centanet_details(limit: int | None, process_all: bool, save_sna
             },
             indent=2,
             ensure_ascii=False,
+        )
+    )
+
+
+def run_cleanup_runtime_artifacts(
+    refresh_job_days: int,
+    keep_latest_jobs_per_name: int,
+    search_snapshot_days: int,
+    detail_snapshot_days: int,
+    keep_latest_snapshots_per_object: int,
+) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = cleanup_runtime_artifacts(
+            session,
+            refresh_job_days=refresh_job_days,
+            keep_latest_jobs_per_name=keep_latest_jobs_per_name,
+            search_snapshot_days=search_snapshot_days,
+            detail_snapshot_days=detail_snapshot_days,
+            keep_latest_snapshots_per_object=keep_latest_snapshots_per_object,
+        )
+
+    print(
+        json.dumps(
+            {
+                "refresh_job_days": refresh_job_days,
+                "keep_latest_jobs_per_name": keep_latest_jobs_per_name,
+                "search_snapshot_days": search_snapshot_days,
+                "detail_snapshot_days": detail_snapshot_days,
+                "keep_latest_snapshots_per_object": keep_latest_snapshots_per_object,
+                "refresh_jobs_deleted": summary.refresh_jobs_deleted,
+                "snapshots_deleted": summary.snapshots_deleted,
+                "files_deleted": summary.files_deleted,
+            },
+            indent=2,
         )
     )
 

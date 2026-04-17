@@ -318,6 +318,10 @@ npm run dev:web
 `/system` 页面还新增了 `Commercial Search Monitors`，可在网页里直接创建、编辑、删除和运行受监控的中原搜索入口。
 `/activity` 页面会汇总最近的 refresh jobs、source snapshots、watchlist 更新，并支持按 kind、source、development 过滤。
 
+如果你准备增加更多真实 monitor 或开始更高频的商业源刷新，建议先看：
+
+- [运行手册](operations.md)
+
 ## 8. 当前 Phase 0 能力
 
 - FastAPI 服务骨架

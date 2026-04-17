@@ -12,6 +12,7 @@
 - [API 设计](docs/api-design.md)
 - [开发路线图](docs/roadmap.md)
 - [本地开发](docs/local-development.md)
+- [运行手册](docs/operations.md)
 
 ## 产品目标
 

@@ -17,7 +17,7 @@ from hk_home_intel_connectors.centanet import CentanetAdapter
 from hk_home_intel_connectors.ricacorp import RicacorpAdapter
 from hk_home_intel_connectors.srpe import SRPEAdapter
 from hk_home_intel_domain.enums import ListingStatus, ParseStatus, PriceEventType, SnapshotKind
-from hk_home_intel_domain.normalization import enrich_development_payload
+from hk_home_intel_domain.normalization import enrich_development_payload, normalize_hk_address
 from hk_home_intel_domain.models import Development, Document, Listing, PriceEvent, SourceSnapshot, Transaction
 from hk_home_intel_shared.settings import get_settings
 
@@ -938,23 +938,108 @@ def find_existing_development(session: Session, payload: dict[str, Any]) -> Deve
         if existing is not None:
             return existing
 
-    name_conditions = []
-    if payload.get("name_zh"):
-        name_conditions.append(Development.name_zh == payload["name_zh"])
-    if payload.get("name_en"):
-        name_conditions.append(Development.name_en == payload["name_en"])
+    enriched = enrich_development_payload(payload)
+    payload_name_zh = payload.get("name_zh")
+    payload_name_en = payload.get("name_en")
 
-    if not name_conditions:
+    name_conditions = []
+    if payload_name_zh:
+        name_conditions.append(Development.name_zh == payload_name_zh)
+    if payload_name_en:
+        name_conditions.append(Development.name_en == payload_name_en)
+
+    if name_conditions:
+        direct_name_match = session.scalar(select(Development).where(or_(*name_conditions)).limit(1))
+        if direct_name_match is not None:
+            return direct_name_match
+
+    payload_alias_keys = _development_identity_keys(
+        payload_name_zh,
+        payload_name_en,
+        enriched.get("aliases_json"),
+    )
+    if not payload_alias_keys:
         return None
 
-    stmt = select(Development).where(or_(*name_conditions))
+    payload_address_key = _normalized_identity_key(enriched.get("address_normalized") or payload.get("address_raw"))
+    payload_district_key = _normalized_identity_key(enriched.get("district"))
+    payload_region_key = _normalized_identity_key(enriched.get("region"))
+    payload_developer_keys = _developer_identity_keys(enriched.get("developer_names_json"))
 
-    # Address alone is too weak for cross-source entity merging. Keep it only as a
-    # tie-breaker after a name match when both sides provide a normalized address.
-    if payload.get("address_raw"):
-        stmt = stmt.order_by(Development.address_raw == payload["address_raw"])
+    candidates = session.scalars(select(Development)).all()
+    best_candidate: Development | None = None
+    best_score = -1
 
-    return session.scalar(stmt.limit(1))
+    for candidate in candidates:
+        candidate_alias_keys = _development_identity_keys(
+            candidate.name_zh,
+            candidate.name_en,
+            candidate.aliases_json,
+        )
+        alias_overlap = payload_alias_keys & candidate_alias_keys
+        if not alias_overlap:
+            continue
+
+        candidate_primary_keys = _development_identity_keys(candidate.name_zh, candidate.name_en, None)
+        primary_overlap = _development_identity_keys(payload_name_zh, payload_name_en, None) & candidate_primary_keys
+
+        candidate_address_key = _normalized_identity_key(candidate.address_normalized or candidate.address_raw)
+        candidate_district_key = _normalized_identity_key(candidate.district)
+        candidate_region_key = _normalized_identity_key(candidate.region)
+        candidate_developer_keys = _developer_identity_keys(candidate.developer_names_json)
+
+        corroboration = 0
+        if payload_address_key and candidate_address_key and payload_address_key == candidate_address_key:
+            corroboration += 3
+        if payload_district_key and candidate_district_key and payload_district_key == candidate_district_key:
+            corroboration += 1
+        if payload_region_key and candidate_region_key and payload_region_key == candidate_region_key:
+            corroboration += 1
+        if payload_developer_keys and candidate_developer_keys and payload_developer_keys & candidate_developer_keys:
+            corroboration += 2
+
+        if not primary_overlap and corroboration == 0:
+            continue
+
+        score = corroboration + len(alias_overlap) + (3 if primary_overlap else 0)
+        if score > best_score:
+            best_candidate = candidate
+            best_score = score
+
+    return best_candidate
+
+
+def _normalized_identity_key(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = normalize_hk_address(value)
+    if not normalized:
+        return None
+    key = "".join(char.lower() for char in normalized if char.isalnum())
+    return key or None
+
+
+def _development_identity_keys(
+    name_zh: str | None,
+    name_en: str | None,
+    aliases: Iterable[str] | None,
+) -> set[str]:
+    values = [name_zh, name_en, *(aliases or [])]
+    return {
+        key
+        for value in values
+        for key in [_normalized_identity_key(value)]
+        if key is not None
+    }
+
+
+def _developer_identity_keys(values: Iterable[str] | None) -> set[str]:
+    return {
+        key
+        for value in (values or [])
+        for key in [_normalized_identity_key(value)]
+        if key is not None
+    }
 
 
 def _legacy_srpe_document_id(payload: dict[str, Any]) -> str | None:

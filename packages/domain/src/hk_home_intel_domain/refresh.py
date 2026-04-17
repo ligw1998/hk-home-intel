@@ -19,6 +19,14 @@ from hk_home_intel_shared.db import get_session_factory
 from hk_home_intel_shared.scheduler import get_due_scheduler_plan_names, load_scheduler_plans
 
 
+def _monitor_priority(criteria: dict[str, Any]) -> int:
+    value = criteria.get("priority_level")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 50
+
+
 def execute_srpe_refresh(
     session: Session,
     *,
@@ -206,7 +214,14 @@ def execute_commercial_search_monitor_refresh(
 
     criteria = monitor.criteria_json or {}
     effective_limit = limit_override if limit_override is not None else criteria.get("default_limit")
-    effective_detail_limit = criteria.get("detail_limit") if monitor.with_details else None
+    detail_policy = str(criteria.get("detail_policy") or "always")
+    priority_level = _monitor_priority(criteria)
+    effective_with_details = monitor.with_details
+    if detail_policy == "never":
+        effective_with_details = False
+    elif detail_policy == "priority_only" and priority_level < 70:
+        effective_with_details = False
+    effective_detail_limit = criteria.get("detail_limit") if effective_with_details else None
 
     effective_job_name = job_name or f"commercial_monitor:{monitor.id}"
     if job_id is not None:
@@ -226,7 +241,7 @@ def execute_commercial_search_monitor_refresh(
                 session,
                 url=monitor.search_url,
                 limit=effective_limit,
-                with_details=monitor.with_details,
+                with_details=effective_with_details,
                 detail_limit=effective_detail_limit,
                 detect_withdrawn=monitor.detect_withdrawn,
             )
@@ -252,8 +267,10 @@ def execute_commercial_search_monitor_refresh(
         "monitor_name": monitor.name,
         "url": monitor.search_url,
         "limit": effective_limit,
-        "with_details": monitor.with_details,
+        "with_details": effective_with_details,
         "detail_limit": effective_detail_limit,
+        "priority_level": priority_level,
+        "detail_policy": detail_policy,
         "detect_withdrawn": monitor.detect_withdrawn,
         "developments_created": summary.developments_created,
         "developments_updated": summary.developments_updated,
@@ -286,7 +303,15 @@ def execute_commercial_search_monitor_batch(
     query = select(CommercialSearchMonitor).where(CommercialSearchMonitor.source == source)
     if active_only:
         query = query.where(CommercialSearchMonitor.is_active.is_(True))
-    monitors = session.scalars(query.order_by(CommercialSearchMonitor.updated_at.desc())).all()
+    monitors = session.scalars(query).all()
+    monitors.sort(
+        key=lambda item: (
+            -_monitor_priority(item.criteria_json or {}),
+            0 if item.is_active else 1,
+            item.updated_at,
+        ),
+        reverse=False,
+    )
 
     if job_id is not None:
         wrapper_job = session.get(RefreshJobRun, job_id)
@@ -301,17 +326,31 @@ def execute_commercial_search_monitor_batch(
         )
     try:
         results: list[dict[str, Any]] = []
+        failed_monitor_count = 0
         for monitor in monitors:
-            results.append(
-                execute_commercial_search_monitor_refresh(
-                    session,
-                    monitor_id=monitor.id,
-                    limit_override=limit_override,
-                    trigger_kind="batch",
-                    job_name=f"commercial_monitor:{monitor.id}",
-                    allow_inactive=not active_only,
+            try:
+                results.append(
+                    execute_commercial_search_monitor_refresh(
+                        session,
+                        monitor_id=monitor.id,
+                        limit_override=limit_override,
+                        trigger_kind="batch",
+                        job_name=f"commercial_monitor:{monitor.id}",
+                        allow_inactive=not active_only,
+                    )
                 )
-            )
+            except Exception as exc:
+                failed_monitor_count += 1
+                results.append(
+                    {
+                        "source": monitor.source,
+                        "monitor_id": monitor.id,
+                        "monitor_name": monitor.name,
+                        "url": monitor.search_url,
+                        "status": "failed",
+                        "error_message": str(exc),
+                    }
+                )
     except Exception as exc:
         finish_job_run(
             session,
@@ -326,6 +365,7 @@ def execute_commercial_search_monitor_batch(
         "active_only": active_only,
         "limit_override": limit_override,
         "monitor_count": len(monitors),
+        "failed_monitor_count": failed_monitor_count,
         "results": results,
     }
     finish_job_run(

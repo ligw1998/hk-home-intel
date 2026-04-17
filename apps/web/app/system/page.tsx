@@ -87,6 +87,8 @@ type MonitorCriteria = {
   max_age_years: number | null;
   default_limit: number | null;
   detail_limit: number | null;
+  priority_level: number;
+  detail_policy: string;
 };
 
 type MonitorLatestRun = {
@@ -114,6 +116,10 @@ type CommercialSearchMonitor = {
   tags: string[];
   criteria: MonitorCriteria;
   updated_at: string;
+  health_status: string;
+  latest_success_at: string | null;
+  latest_failure_at: string | null;
+  recent_failure_count: number;
   latest_run: MonitorLatestRun | null;
 };
 
@@ -131,6 +137,16 @@ type MonitorDraft = {
   detect_withdrawn: boolean;
   default_limit: string;
   detail_limit: string;
+  priority_level: string;
+  detail_policy: string;
+};
+
+type MonitorRecommendedConfig = {
+  with_details: boolean;
+  default_limit: string;
+  detail_limit: string;
+  priority_level: string;
+  detail_policy: string;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -226,7 +242,63 @@ function buildMonitorDraft(item: CommercialSearchMonitor): MonitorDraft {
     detect_withdrawn: item.detect_withdrawn,
     default_limit: item.criteria.default_limit?.toString() ?? "",
     detail_limit: item.criteria.detail_limit?.toString() ?? "",
+    priority_level: item.criteria.priority_level?.toString() ?? "50",
+    detail_policy: item.criteria.detail_policy ?? "always",
   };
+}
+
+function monitorHealthLabel(value: string): string {
+  switch (value) {
+    case "healthy":
+      return "healthy";
+    case "warning":
+      return "warning";
+    case "failing":
+      return "failing";
+    case "stale":
+      return "stale";
+    case "paused":
+      return "paused";
+    default:
+      return "never run";
+  }
+}
+
+function recommendedMonitorConfig(source: string): MonitorRecommendedConfig {
+  if (source === "ricacorp") {
+    return {
+      with_details: false,
+      default_limit: "30",
+      detail_limit: "",
+      priority_level: "55",
+      detail_policy: "never",
+    };
+  }
+  return {
+    with_details: true,
+    default_limit: "20",
+    detail_limit: "8",
+    priority_level: "70",
+    detail_policy: "priority_only",
+  };
+}
+
+function monitorStrategyLabel(criteria: MonitorCriteria, withDetails: boolean): string {
+  const detailMode = !withDetails
+    ? "search only"
+    : criteria.detail_policy === "always"
+      ? "detail on every run"
+      : criteria.detail_policy === "priority_only"
+        ? "detail on high-priority runs"
+        : "detail disabled";
+  return `${detailMode} / priority ${criteria.priority_level} / search ${criteria.default_limit ?? "all"}`;
+}
+
+function sourceGuidance(source: string): string {
+  if (source === "ricacorp") {
+    return "Prefer broader search-page coverage and lighter refreshes. Keep detail off by default unless a source-specific parser is added later.";
+  }
+  return "Prefer a moderate search limit and high-priority detail enrichment. Use detail only for priority monitors to avoid slow full-page refreshes.";
 }
 
 export default function SystemPage() {
@@ -250,6 +322,8 @@ export default function SystemPage() {
     detect_withdrawn: false,
     default_limit: "20",
     detail_limit: "10",
+    priority_level: "50",
+    detail_policy: "always",
   });
   const [runningPlan, setRunningPlan] = useState<string | null>(null);
   const [runningMonitor, setRunningMonitor] = useState<string | null>(null);
@@ -539,10 +613,20 @@ export default function SystemPage() {
           detect_withdrawn: false,
           default_limit: "",
           detail_limit: "",
+          priority_level: "50",
+          detail_policy: "always",
         }),
         ...patch,
       },
     }));
+  }
+
+  function applyRecommendedConfigToNewMonitor() {
+    setNewMonitor((current) => ({ ...current, ...recommendedMonitorConfig(current.source) }));
+  }
+
+  function applyRecommendedConfigToDraft(monitorId: string, source: string) {
+    updateMonitorDraft(monitorId, recommendedMonitorConfig(source));
   }
 
   async function createMonitor() {
@@ -572,6 +656,8 @@ export default function SystemPage() {
             max_age_years: null,
             default_limit: newMonitor.default_limit === "" ? null : Number(newMonitor.default_limit),
             detail_limit: newMonitor.detail_limit === "" ? null : Number(newMonitor.detail_limit),
+            priority_level: newMonitor.priority_level === "" ? 50 : Number(newMonitor.priority_level),
+            detail_policy: newMonitor.detail_policy,
           },
         }),
       });
@@ -593,6 +679,8 @@ export default function SystemPage() {
         detect_withdrawn: false,
         default_limit: "20",
         detail_limit: "10",
+        priority_level: "50",
+        detail_policy: "always",
       });
       setInfo("Commercial search monitor created.");
       setError(null);
@@ -635,6 +723,8 @@ export default function SystemPage() {
             max_age_years: null,
             default_limit: draft.default_limit === "" ? null : Number(draft.default_limit),
             detail_limit: draft.detail_limit === "" ? null : Number(draft.detail_limit),
+            priority_level: draft.priority_level === "" ? 50 : Number(draft.priority_level),
+            detail_policy: draft.detail_policy,
           },
         }),
       });
@@ -797,7 +887,12 @@ export default function SystemPage() {
                   <span>
                     {formatDateTime(item.started_at)} to {formatDateTime(item.finished_at)}
                   </span>
-                  {renderJobSummary(item)}
+                  {(item.summary || item.error_message) ? (
+                    <details className="plan-guideline" open={item.status === "failed"}>
+                      <summary>Run details</summary>
+                      {renderJobSummary(item)}
+                    </details>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -846,137 +941,140 @@ export default function SystemPage() {
                     {" "}
                     <code>conda run -n py311 hhi-worker run-refresh-plan --plan {plan.name}</code>
                   </span>
-                  <div className="plan-editor">
-                    <label className="checkbox-field">
-                      <input
-                        type="checkbox"
-                        checked={planDrafts[plan.name]?.auto_run ?? plan.auto_run}
-                        onChange={(event) =>
-                          updatePlanDraft(plan.name, { auto_run: event.target.checked })
-                        }
-                      />
-                      <span>Auto run</span>
-                    </label>
-                    <label className="field">
-                      <span>Interval Minutes</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={planDrafts[plan.name]?.interval_minutes ?? ""}
-                        onChange={(event) =>
-                          updatePlanDraft(plan.name, { interval_minutes: event.target.value })
-                        }
-                      />
-                    </label>
-                    {(planDrafts[plan.name]?.tasks ?? []).map((task) => (
-                      <div key={`${plan.name}-${task.job_name}`} className="task-editor">
-                        <strong>{task.job_name}</strong>
-                        <label className="field">
-                          <span>Limit</span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={task.limit}
-                            onChange={(event) =>
-                              updateTaskDraft(plan.name, task.job_name, { limit: event.target.value })
-                            }
-                          />
-                        </label>
-                        <label className="checkbox-field">
-                          <input
-                            type="checkbox"
-                            checked={task.with_details}
-                            onChange={(event) =>
-                              updateTaskDraft(plan.name, task.job_name, {
-                                with_details: event.target.checked,
-                              })
-                            }
-                          />
-                          <span>With details</span>
-                        </label>
-                        <label className="checkbox-field">
-                          <input
-                            type="checkbox"
-                            checked={task.detect_withdrawn}
-                            onChange={(event) =>
-                              updateTaskDraft(plan.name, task.job_name, {
-                                detect_withdrawn: event.target.checked,
-                              })
-                            }
-                          />
-                          <span>Detect withdrawn</span>
-                        </label>
-                        <label className="field">
-                          <span>Rotation Mode</span>
-                          <select
-                            value={task.rotation_mode}
-                            onChange={(event) =>
-                              updateTaskDraft(plan.name, task.job_name, {
-                                rotation_mode: event.target.value,
-                              })
-                            }
-                          >
-                            <option value="none">none</option>
-                            <option value="cycle">cycle</option>
-                          </select>
-                        </label>
-                        <label className="field">
-                          <span>Rotation Step</span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={task.rotation_step}
-                            onChange={(event) =>
-                              updateTaskDraft(plan.name, task.job_name, {
-                                rotation_step: event.target.value,
-                              })
-                            }
-                          />
-                        </label>
-                        {plan.tasks.find((item) => item.job_name === task.job_name)?.url ? (
-                          <p className="muted">
-                            Scope URL:
-                            {" "}
-                            <code>{plan.tasks.find((item) => item.job_name === task.job_name)?.url}</code>
-                          </p>
-                        ) : null}
-                      </div>
+                  <details className="plan-guideline">
+                    <summary>Tasks & configuration</summary>
+                    <div className="plan-editor">
+                      <label className="checkbox-field">
+                        <input
+                          type="checkbox"
+                          checked={planDrafts[plan.name]?.auto_run ?? plan.auto_run}
+                          onChange={(event) =>
+                            updatePlanDraft(plan.name, { auto_run: event.target.checked })
+                          }
+                        />
+                        <span>Auto run</span>
+                      </label>
+                      <label className="field">
+                        <span>Interval Minutes</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={planDrafts[plan.name]?.interval_minutes ?? ""}
+                          onChange={(event) =>
+                            updatePlanDraft(plan.name, { interval_minutes: event.target.value })
+                          }
+                        />
+                      </label>
+                      {(planDrafts[plan.name]?.tasks ?? []).map((task) => (
+                        <div key={`${plan.name}-${task.job_name}`} className="task-editor">
+                          <strong>{task.job_name}</strong>
+                          <label className="field">
+                            <span>Limit</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={task.limit}
+                              onChange={(event) =>
+                                updateTaskDraft(plan.name, task.job_name, { limit: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label className="checkbox-field">
+                            <input
+                              type="checkbox"
+                              checked={task.with_details}
+                              onChange={(event) =>
+                                updateTaskDraft(plan.name, task.job_name, {
+                                  with_details: event.target.checked,
+                                })
+                              }
+                            />
+                            <span>With details</span>
+                          </label>
+                          <label className="checkbox-field">
+                            <input
+                              type="checkbox"
+                              checked={task.detect_withdrawn}
+                              onChange={(event) =>
+                                updateTaskDraft(plan.name, task.job_name, {
+                                  detect_withdrawn: event.target.checked,
+                                })
+                              }
+                            />
+                            <span>Detect withdrawn</span>
+                          </label>
+                          <label className="field">
+                            <span>Rotation Mode</span>
+                            <select
+                              value={task.rotation_mode}
+                              onChange={(event) =>
+                                updateTaskDraft(plan.name, task.job_name, {
+                                  rotation_mode: event.target.value,
+                                })
+                              }
+                            >
+                              <option value="none">none</option>
+                              <option value="cycle">cycle</option>
+                            </select>
+                          </label>
+                          <label className="field">
+                            <span>Rotation Step</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={task.rotation_step}
+                              onChange={(event) =>
+                                updateTaskDraft(plan.name, task.job_name, {
+                                  rotation_step: event.target.value,
+                                })
+                              }
+                            />
+                          </label>
+                          {plan.tasks.find((item) => item.job_name === task.job_name)?.url ? (
+                            <p className="muted">
+                              Scope URL:
+                              {" "}
+                              <code>{plan.tasks.find((item) => item.job_name === task.job_name)?.url}</code>
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="watchlist-actions">
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => void runPlan(plan.name)}
+                        disabled={runningPlan !== null}
+                      >
+                        {runningPlan === plan.name ? "Running..." : "Run from UI"}
+                      </button>
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => void savePlanConfig(plan.name)}
+                        disabled={runningPlan !== null || runningDuePlans}
+                      >
+                        {runningPlan === plan.name ? "Working..." : "Save override"}
+                      </button>
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => void resetPlanConfig(plan.name)}
+                        disabled={runningPlan !== null || runningDuePlans}
+                      >
+                        Reset override
+                      </button>
+                    </div>
+                    {runningPlan === plan.name ? (
+                      <p className="muted">Plan request in progress. Watch Recent Refresh Jobs for updates.</p>
+                    ) : null}
+                    {plan.tasks.map((task) => (
+                      <span key={`${plan.name}-${task.job_name}`}>
+                        {describeTask(task)}
+                      </span>
                     ))}
-                  </div>
-                  <div className="watchlist-actions">
-                    <button
-                      type="button"
-                      className="action-button"
-                      onClick={() => void runPlan(plan.name)}
-                      disabled={runningPlan !== null}
-                    >
-                      {runningPlan === plan.name ? "Running..." : "Run from UI"}
-                    </button>
-                    <button
-                      type="button"
-                      className="action-button"
-                      onClick={() => void savePlanConfig(plan.name)}
-                      disabled={runningPlan !== null || runningDuePlans}
-                    >
-                      {runningPlan === plan.name ? "Working..." : "Save override"}
-                    </button>
-                    <button
-                      type="button"
-                      className="action-button"
-                      onClick={() => void resetPlanConfig(plan.name)}
-                      disabled={runningPlan !== null || runningDuePlans}
-                    >
-                      Reset override
-                    </button>
-                  </div>
-                  {runningPlan === plan.name ? (
-                    <p className="muted">Plan request in progress. Watch Recent Refresh Jobs for updates.</p>
-                  ) : null}
-                  {plan.tasks.map((task) => (
-                    <span key={`${plan.name}-${task.job_name}`}>
-                      {describeTask(task)}
-                    </span>
-                  ))}
+                  </details>
                 </li>
               ))}
             </ul>
@@ -993,6 +1091,23 @@ export default function SystemPage() {
             Use <code>Default limit</code> to cap how many search results are processed per run, and
             <code>Detail limit</code> to keep HTML detail enrichment smaller than the search-page scan.
           </p>
+          <details className="plan-guideline">
+            <summary>Source strategy guide</summary>
+            <p className="muted">
+              <strong>centanet:</strong>
+              {" "}
+              {sourceGuidance("centanet")}
+            </p>
+            <p className="muted">
+              <strong>ricacorp:</strong>
+              {" "}
+              {sourceGuidance("ricacorp")}
+            </p>
+            <p className="muted">
+              For multi-monitor refreshes, start with moderate search limits and keep detail
+              enrichment constrained to priority monitors. This keeps batches stable before you scale up.
+            </p>
+          </details>
           <div className="watchlist-actions">
             <button
               type="button"
@@ -1095,6 +1210,27 @@ export default function SystemPage() {
                 onChange={(event) => setNewMonitor((current) => ({ ...current, detail_limit: event.target.value }))}
               />
             </label>
+            <label className="field">
+              <span>Priority</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={newMonitor.priority_level}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, priority_level: event.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>Detail policy</span>
+              <select
+                value={newMonitor.detail_policy}
+                onChange={(event) => setNewMonitor((current) => ({ ...current, detail_policy: event.target.value }))}
+              >
+                <option value="always">always</option>
+                <option value="priority_only">priority only</option>
+                <option value="never">never</option>
+              </select>
+            </label>
             <label className="checkbox-field">
               <input
                 type="checkbox"
@@ -1128,6 +1264,14 @@ export default function SystemPage() {
             <button
               type="button"
               className="action-button"
+              onClick={applyRecommendedConfigToNewMonitor}
+              disabled={runningMonitor !== null || runningPlan !== null || runningDuePlans}
+            >
+              Apply recommended defaults
+            </button>
+            <button
+              type="button"
+              className="action-button"
               onClick={() => void createMonitor()}
               disabled={runningMonitor !== null || !newMonitor.name || !newMonitor.search_url}
             >
@@ -1143,9 +1287,24 @@ export default function SystemPage() {
                     <strong>{monitor.name}</strong>
                     <span>{monitor.source} / {monitor.scope_type}{monitor.is_active ? " / active" : " / paused"}</span>
                     <span>
+                      Health:
+                      {" "}
+                      {monitorHealthLabel(monitor.health_status)}
+                      {monitor.recent_failure_count > 0 ? ` / recent failures ${monitor.recent_failure_count}` : ""}
+                    </span>
+                    <span>
                       Last run:
                       {" "}
                       {monitor.latest_run ? `${formatDateTime(monitor.latest_run.started_at)} / ${monitor.latest_run.status}` : "never"}
+                    </span>
+                    <span>
+                      Last success:
+                      {" "}
+                      {monitor.latest_success_at ? formatDateTime(monitor.latest_success_at) : "never"}
+                      {" / "}
+                      Last failure:
+                      {" "}
+                      {monitor.latest_failure_at ? formatDateTime(monitor.latest_failure_at) : "never"}
                     </span>
                     <span>
                       Default limit:
@@ -1155,6 +1314,19 @@ export default function SystemPage() {
                       Detail limit:
                       {" "}
                       {monitor.criteria.detail_limit ?? "all"}
+                      {" / "}
+                      Priority:
+                      {" "}
+                      {monitor.criteria.priority_level}
+                      {" / "}
+                      Detail policy:
+                      {" "}
+                      {monitor.criteria.detail_policy}
+                    </span>
+                    <span>
+                      Strategy:
+                      {" "}
+                      {monitorStrategyLabel(monitor.criteria, monitor.with_details)}
                     </span>
                     <span>
                       URL:
@@ -1162,7 +1334,10 @@ export default function SystemPage() {
                       <code>{monitor.search_url}</code>
                     </span>
                     {monitor.latest_run?.summary ? (
-                      <pre className="job-summary">{JSON.stringify(monitor.latest_run.summary, null, 2)}</pre>
+                      <details className="plan-guideline" open={monitor.health_status === "failing"}>
+                        <summary>Latest run summary</summary>
+                        <pre className="job-summary">{JSON.stringify(monitor.latest_run.summary, null, 2)}</pre>
+                      </details>
                     ) : null}
                     <div className="plan-editor">
                       <label className="field">
@@ -1248,6 +1423,31 @@ export default function SystemPage() {
                           onChange={(event) => updateMonitorDraft(monitor.id, { detail_limit: event.target.value })}
                         />
                       </label>
+                      <label className="field">
+                        <span>Priority</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={draft.priority_level}
+                          onChange={(event) =>
+                            updateMonitorDraft(monitor.id, { priority_level: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Detail policy</span>
+                        <select
+                          value={draft.detail_policy}
+                          onChange={(event) =>
+                            updateMonitorDraft(monitor.id, { detail_policy: event.target.value })
+                          }
+                        >
+                          <option value="always">always</option>
+                          <option value="priority_only">priority only</option>
+                          <option value="never">never</option>
+                        </select>
+                      </label>
                       <label className="checkbox-field">
                         <input
                           type="checkbox"
@@ -1276,6 +1476,14 @@ export default function SystemPage() {
                       </label>
                     </div>
                     <div className="watchlist-actions">
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => applyRecommendedConfigToDraft(monitor.id, draft.source)}
+                        disabled={runningMonitor !== null || runningPlan !== null || runningDuePlans}
+                      >
+                        Recommended defaults
+                      </button>
                       <button
                         type="button"
                         className="action-button"

@@ -992,6 +992,25 @@ a:hover {
   margin: 8px 0 0;
 }
 
+.plan-guideline > summary {
+  list-style: none;
+}
+
+.plan-guideline > summary::-webkit-details-marker {
+  display: none;
+}
+
+.plan-guideline > summary::after {
+  content: "▾";
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.plan-guideline[open] > summary::after {
+  content: "▴";
+}
+
 .plan-editor,
 .task-editor {
   display: grid;

@@ -224,6 +224,63 @@ def test_execute_commercial_search_monitor_refresh_dispatches_centanet_import(tm
     }
 
 
+def test_execute_commercial_search_monitor_refresh_respects_priority_only_detail_policy(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-monitor-priority.db'}")
+    Base.metadata.create_all(engine)
+    captured: dict[str, object] = {}
+
+    def fake_import(
+        session,
+        *,
+        url: str,
+        html_path=None,
+        limit=None,
+        with_details=False,
+        detail_limit=None,
+        save_detail_snapshots=False,
+        detect_withdrawn=False,
+    ):
+        captured.update(
+            {
+                "limit": limit,
+                "with_details": with_details,
+                "detail_limit": detail_limit,
+            }
+        )
+        class Summary:
+            source = "centanet"
+            developments_created = 0
+            developments_updated = 1
+            documents_upserted = 0
+            listings_upserted = 2
+            transactions_upserted = 0
+            price_events_created = 0
+            snapshots_created = 1
+            detail_failures = 0
+
+        return Summary()
+
+    monkeypatch.setattr("hk_home_intel_domain.refresh.import_centanet_search_results", fake_import)
+
+    with Session(engine) as session:
+        monitor = CommercialSearchMonitor(
+            source="centanet",
+            name="Low priority detail gate",
+            search_url="https://example.test/priority",
+            is_active=True,
+            with_details=True,
+            criteria_json={"default_limit": 15, "detail_limit": 5, "priority_level": 40, "detail_policy": "priority_only"},
+        )
+        session.add(monitor)
+        session.commit()
+        result = execute_commercial_search_monitor_refresh(session, monitor_id=monitor.id)
+
+    assert result["with_details"] is False
+    assert result["detail_limit"] is None
+    assert result["detail_policy"] == "priority_only"
+    assert captured == {"limit": 15, "with_details": False, "detail_limit": None}
+
+
 def test_execute_commercial_search_monitor_refresh_dispatches_ricacorp_import(tmp_path: Path, monkeypatch) -> None:
     engine = get_engine(f"sqlite:///{tmp_path / 'commercial-monitor-ricacorp.db'}")
     Base.metadata.create_all(engine)

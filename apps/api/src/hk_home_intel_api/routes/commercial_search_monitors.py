@@ -1,4 +1,5 @@
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -23,6 +24,8 @@ class MonitorCriteria(BaseModel):
     max_age_years: int | None = None
     default_limit: int | None = Field(default=None, ge=1, le=200)
     detail_limit: int | None = Field(default=None, ge=1, le=100)
+    priority_level: int = Field(default=50, ge=0, le=100)
+    detail_policy: Literal["always", "priority_only", "never"] = "always"
 
 
 class CommercialSearchMonitorUpsertRequest(BaseModel):
@@ -84,7 +87,36 @@ class CommercialSearchMonitorResponse(BaseModel):
     tags: list[str]
     criteria: MonitorCriteria
     updated_at: str
+    health_status: str
+    latest_success_at: str | None
+    latest_failure_at: str | None
+    recent_failure_count: int
     latest_run: MonitorLatestRunResponse | None
+
+
+def _monitor_health_status(
+    *,
+    is_active: bool,
+    latest_run: RefreshJobRun | None,
+    latest_success_at: datetime | None,
+    recent_failure_count: int,
+) -> str:
+    if not is_active:
+        return "paused"
+    if latest_run is None:
+        return "never_run"
+    if latest_run.status.value == "failed":
+        return "failing"
+    latest_summary = latest_run.summary_json or {}
+    if int(latest_summary.get("detail_failures", 0) or 0) > 0:
+        return "warning"
+    if recent_failure_count > 0:
+        return "warning"
+    if latest_success_at is not None:
+        normalized = latest_success_at if latest_success_at.tzinfo is not None else latest_success_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - normalized > timedelta(days=7):
+            return "stale"
+    return "healthy"
 
 
 def _serialize_latest_run(item: RefreshJobRun | None) -> MonitorLatestRunResponse | None:
@@ -113,6 +145,35 @@ def _serialize_monitor(item: CommercialSearchMonitor, session: Session) -> Comme
         .order_by(RefreshJobRun.started_at.desc())
         .limit(1)
     )
+    latest_success = session.scalar(
+        select(RefreshJobRun)
+        .where(
+            RefreshJobRun.job_name == f"commercial_monitor:{item.id}",
+            RefreshJobRun.status == "succeeded",
+        )
+        .order_by(RefreshJobRun.started_at.desc())
+        .limit(1)
+    )
+    latest_failure = session.scalar(
+        select(RefreshJobRun)
+        .where(
+            RefreshJobRun.job_name == f"commercial_monitor:{item.id}",
+            RefreshJobRun.status == "failed",
+        )
+        .order_by(RefreshJobRun.started_at.desc())
+        .limit(1)
+    )
+    recent_failure_count = len(
+        session.scalars(
+            select(RefreshJobRun)
+            .where(
+                RefreshJobRun.job_name == f"commercial_monitor:{item.id}",
+                RefreshJobRun.status == "failed",
+            )
+            .order_by(RefreshJobRun.started_at.desc())
+            .limit(5)
+        ).all()
+    )
     return CommercialSearchMonitorResponse(
         id=item.id,
         source=item.source,
@@ -129,6 +190,15 @@ def _serialize_monitor(item: CommercialSearchMonitor, session: Session) -> Comme
         tags=item.tags_json or [],
         criteria=MonitorCriteria(**(item.criteria_json or {})),
         updated_at=item.updated_at.isoformat(),
+        health_status=_monitor_health_status(
+            is_active=item.is_active,
+            latest_run=latest_run,
+            latest_success_at=latest_success.started_at if latest_success is not None else None,
+            recent_failure_count=recent_failure_count,
+        ),
+        latest_success_at=latest_success.started_at.isoformat() if latest_success is not None else None,
+        latest_failure_at=latest_failure.started_at.isoformat() if latest_failure is not None else None,
+        recent_failure_count=recent_failure_count,
         latest_run=_serialize_latest_run(latest_run),
     )
 
