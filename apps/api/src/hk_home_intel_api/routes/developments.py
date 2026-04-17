@@ -15,6 +15,8 @@ router = APIRouter(prefix="/developments", tags=["developments"])
 class DevelopmentSummary(BaseModel):
     id: str
     source_url: str | None
+    available_sources: list[str]
+    source_links: list[dict[str, str]]
     name_zh: str | None
     name_en: str | None
     name_translations: dict[str, str]
@@ -148,9 +150,27 @@ def _serialize_development(
 ) -> DevelopmentSummary:
     name_translations = item.name_translations_json or {}
     metrics = (listing_metrics or {}).get(item.id, {})
+    available_sources = sorted(
+        {
+            source
+            for source in [item.source, *dict(metrics.get("active_listing_source_counts", {})).keys()]
+            if source
+        }
+    )
+    source_links: list[dict[str, str]] = []
+    seen_sources: set[str] = set()
+    if item.source and item.source_url:
+        source_links.append({"source": item.source, "url": item.source_url})
+        seen_sources.add(item.source)
+    for source, url in dict(metrics.get("active_listing_source_urls", {})).items():
+        if source not in seen_sources and url:
+            source_links.append({"source": source, "url": str(url)})
+            seen_sources.add(source)
     return DevelopmentSummary(
         id=item.id,
         source_url=item.source_url,
+        available_sources=available_sources,
+        source_links=source_links,
         name_zh=item.name_zh,
         name_en=item.name_en,
         name_translations=name_translations,
@@ -294,6 +314,7 @@ def _build_listing_metrics(session: Session, development_ids: list[str]) -> dict
             "active_listing_bedroom_options": [],
             "active_listing_bedroom_mix": {},
             "active_listing_source_counts": {},
+            "active_listing_source_urls": {},
             "latest_listing_event_at": None,
         }
         for development_id in development_ids
@@ -321,6 +342,10 @@ def _build_listing_metrics(session: Session, development_ids: list[str]) -> dict
         source_counts = dict(item["active_listing_source_counts"])
         source_counts[row.source] = source_counts.get(row.source, 0) + 1
         item["active_listing_source_counts"] = source_counts
+        source_urls = dict(item["active_listing_source_urls"])
+        if row.source_url and row.source not in source_urls:
+            source_urls[row.source] = row.source_url
+            item["active_listing_source_urls"] = source_urls
     for development_id, values in bedroom_sets.items():
         metrics[development_id]["active_listing_bedroom_options"] = sorted(values)
     latest_event_rows = session.execute(
@@ -480,6 +505,7 @@ def list_developments(
     max_budget_hkd: float | None = Query(default=None, ge=0),
     bedroom_values: str | None = Query(default=None),
     max_age_years: int | None = Query(default=None, ge=0),
+    source: str | None = Query(default=None),
     lang: str = Query(default="zh-Hant"),
     limit: int = Query(default=20, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -507,6 +533,7 @@ def list_developments(
             bedroom_values=parsed_bedroom_values,
             max_age_years=max_age_years,
         )
+        and (source is None or source in item.available_sources)
     ]
     filtered_serialized.sort(
         key=lambda item: (
@@ -546,12 +573,25 @@ def get_development(
         .order_by(Transaction.transaction_date.desc().nullslast())
     ).all()
 
+    summary = _serialize_development(
+        development,
+        lang,
+        _build_listing_metrics(session, [development.id]),
+    )
+    source_links = list(summary.source_links)
+    seen_sources = {item["source"] for item in source_links}
+    for collection in (listings, documents, transactions):
+        for item in collection:
+            source_name = getattr(item, "source", None)
+            source_url = getattr(item, "source_url", None)
+            if source_name and source_url and source_name not in seen_sources:
+                source_links.append({"source": source_name, "url": source_url})
+                seen_sources.add(source_name)
+
     return DevelopmentDetail(
-        **_serialize_development(
-            development,
-            lang,
-            _build_listing_metrics(session, [development.id]),
-        ).model_dump(),
+        **summary.model_dump(exclude={"available_sources", "source_links"}),
+        available_sources=sorted(seen_sources),
+        source_links=source_links,
         document_count=len(documents),
         transaction_count=len(transactions),
         listings=[_serialize_listing(item, lang) for item in listings],

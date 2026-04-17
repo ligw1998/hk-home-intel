@@ -736,6 +736,7 @@ export default function SystemPage() {
           <Link href="/">Back to dashboard</Link>
           <Link href="/activity">Open activity</Link>
           <Link href="/map">Open map</Link>
+          <Link href="/shortlist">Open shortlist</Link>
           <Link href="/watchlist">Open watchlist</Link>
           <button
             type="button"

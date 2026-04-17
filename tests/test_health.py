@@ -228,6 +228,99 @@ def test_list_developments_supports_preference_filters(isolated_app: TestClient)
     assert payload["items"][0]["active_listing_source_counts"] == {"centanet": 1}
 
 
+def test_shortlist_returns_ranked_candidates_with_reasons(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        strong = Development(
+            source="centanet",
+            source_external_id="short-1",
+            name_zh="理想候选盘",
+            district="Kai Tak",
+            region="Kowloon",
+            completion_year=2022,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            lat=22.3,
+            lng=114.2,
+        )
+        weak = Development(
+            source="ricacorp",
+            source_external_id="short-2",
+            name_zh="偏弱候选盘",
+            district="Tuen Mun",
+            region="New Territories",
+            completion_year=2005,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+            lat=22.31,
+            lng=114.21,
+        )
+        session.add_all([strong, weak])
+        session.flush()
+        session.add_all(
+            [
+                Listing(
+                    development_id=strong.id,
+                    source="centanet",
+                    source_listing_id="short-listing-1",
+                    listing_type=ListingType.SECOND_HAND,
+                    asking_price_hkd=12_800_000,
+                    price_per_sqft=18_000,
+                    bedrooms=2,
+                    saleable_area_sqft=700,
+                    status=ListingStatus.ACTIVE,
+                ),
+                Listing(
+                    development_id=weak.id,
+                    source="ricacorp",
+                    source_listing_id="short-listing-2",
+                    listing_type=ListingType.SECOND_HAND,
+                    asking_price_hkd=22_800_000,
+                    price_per_sqft=14_000,
+                    bedrooms=4,
+                    saleable_area_sqft=1200,
+                    status=ListingStatus.ACTIVE,
+                ),
+                PriceEvent(
+                    source="centanet",
+                    development_id=strong.id,
+                    listing_id=None,
+                    event_type=PriceEventType.NEW_LISTING,
+                    new_price_hkd=12_800_000,
+                ),
+            ]
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/shortlist")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["profile"]["max_budget_hkd"] == 16000000
+    assert payload["items"][0]["display_name"] == "理想候选盘"
+    assert payload["items"][0]["decision_score"] > payload["items"][1]["decision_score"]
+    assert payload["items"][0]["decision_reasons"]
+    assert "最低在售价明显落在预算内。" in payload["items"][0]["decision_reasons"]
+    assert payload["items"][0]["estimated_stamp_duty_hkd"] is not None
+    assert payload["items"][0]["estimated_total_acquisition_cost_hkd"] is not None
+    assert payload["items"][0]["acquisition_gap_hkd"] is None or payload["items"][0]["acquisition_gap_hkd"] >= 0
+
+
+def test_tax_estimate_endpoint_returns_avd_breakdown(isolated_app: TestClient) -> None:
+    response = isolated_app.get(
+        "/api/v1/policies/tax-estimate?price_hkd=12800000&transaction_date=2026-04-16"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["price_hkd"] == 12800000.0
+    assert payload["buyer_profile"] == "hk_individual_residential"
+    assert payload["avd_hkd"] > 0
+    assert payload["total_tax_hkd"] == payload["avd_hkd"]
+    assert payload["total_acquisition_cost_hkd"] > payload["price_hkd"]
+    assert payload["breakdown"][0]["name"] == "AVD"
+    assert payload["source_urls"]
+
+
 def test_backfill_development_geography_infers_region_from_district_and_coordinates(isolated_app: TestClient) -> None:
     session_factory = get_session_factory()
     with session_factory() as session:
@@ -977,14 +1070,22 @@ def test_run_due_scheduler_plans_endpoint(isolated_app: TestClient, monkeypatch:
     assert payload["job_ids"] == ["job-456"]
 
 
-def test_run_scheduler_plan_endpoint_real_launch_does_not_500(isolated_app: TestClient) -> None:
+def test_run_scheduler_plan_endpoint_accepts_daily_local(isolated_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "hk_home_intel_api.routes.system.launch_refresh_plan",
+        lambda database_url, plan_name, trigger_kind="api": {
+            "job_id": "job-daily-local",
+            "plan": plan_name,
+        },
+    )
+
     response = isolated_app.post("/api/v1/system/run-plan", json={"plan_name": "daily_local"})
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "accepted"
     assert payload["plan"] == "daily_local"
-    assert payload["job_id"]
+    assert payload["job_id"] == "job-daily-local"
 
 
 def test_listings_feed_filters_by_source_and_includes_links(isolated_app: TestClient) -> None:

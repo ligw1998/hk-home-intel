@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CircleMarker,
   MapContainer,
@@ -16,6 +16,7 @@ import { formatListingSegment } from "../lib/segment";
 type DevelopmentSummary = {
   id: string;
   source_url: string | null;
+  source_links: { source: string; url: string }[];
   display_name: string | null;
   district: string | null;
   region: string | null;
@@ -78,6 +79,21 @@ function PanToSelection({ item }: { item: DevelopmentSummary | null }) {
   return null;
 }
 
+function InvalidateOnFullscreen({ tick }: { tick: number }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      map.invalidateSize();
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [map, tick]);
+
+  return null;
+}
+
 export function DevelopmentLeafletMap({
   developments,
   selectedId,
@@ -90,9 +106,42 @@ export function DevelopmentLeafletMap({
   onSelect: (id: string) => void;
 }) {
   const selected = developments.find((item) => item.id === selectedId) ?? null;
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenTick, setFullscreenTick] = useState(0);
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      const active = document.fullscreenElement === shellRef.current;
+      setIsFullscreen(active);
+      setFullscreenTick((current) => current + 1);
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  async function toggleFullscreen() {
+    if (!shellRef.current) {
+      return;
+    }
+    if (document.fullscreenElement === shellRef.current) {
+      await document.exitFullscreen();
+      return;
+    }
+    await shellRef.current.requestFullscreen();
+  }
 
   return (
-    <div className="leaflet-shell">
+    <div
+      ref={shellRef}
+      className={isFullscreen ? "leaflet-shell leaflet-shell-fullscreen" : "leaflet-shell"}
+    >
+      <button type="button" className="map-fullscreen-toggle" onClick={() => void toggleFullscreen()}>
+        {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+      </button>
       <MapContainer
         center={[22.3193, 114.1694]}
         zoom={11}
@@ -105,6 +154,7 @@ export function DevelopmentLeafletMap({
         />
         <FitToDevelopments items={developments} />
         <PanToSelection item={selected} />
+        <InvalidateOnFullscreen tick={fullscreenTick} />
         {developments.map((item) => {
           if (item.lat === null || item.lng === null) {
             return null;
@@ -140,6 +190,25 @@ export function DevelopmentLeafletMap({
                       Detail
                     </Link>
                   </div>
+                  {item.source_links.length === 1 ? (
+                    <div className="map-popup-actions">
+                      <a href={item.source_links[0].url} target="_blank" rel="noreferrer" className="action-link">
+                        Open source
+                      </a>
+                    </div>
+                  ) : null}
+                  {item.source_links.length > 1 ? (
+                    <details className="source-link-menu">
+                      <summary>Open source</summary>
+                      <div className="source-link-list">
+                        {item.source_links.map((link) => (
+                          <a key={link.source} href={link.url} target="_blank" rel="noreferrer">
+                            {link.source}
+                          </a>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                 </div>
               </Popup>
             </CircleMarker>

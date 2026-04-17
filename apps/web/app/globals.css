@@ -91,6 +91,28 @@ a:hover {
   margin-top: 18px;
 }
 
+.workflow-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.workflow-chip {
+  padding: 8px 12px;
+  border: 1px solid rgba(49, 44, 35, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 252, 245, 0.56);
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.workflow-chip-active {
+  border-color: rgba(155, 93, 46, 0.28);
+  background: rgba(155, 93, 46, 0.12);
+  color: var(--text);
+}
+
 .hero-actions a {
   padding: 10px 14px;
   border: 1px solid rgba(49, 44, 35, 0.12);
@@ -106,6 +128,20 @@ a:hover {
   color: inherit;
   font: inherit;
   cursor: pointer;
+}
+
+.money-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.money-toggle:hover {
+  color: var(--accent);
 }
 
 .grid {
@@ -174,6 +210,31 @@ a:hover {
   gap: 14px;
 }
 
+.compare-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.compare-summary-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 252, 245, 0.72);
+}
+
+.compare-summary-card strong {
+  font-size: 0.92rem;
+}
+
+.compare-summary-card span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 .compare-card {
   display: grid;
   gap: 10px;
@@ -184,6 +245,77 @@ a:hover {
 }
 
 .compare-card-meta {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.decision-why-now {
+  color: var(--accent);
+  font-size: 0.92rem;
+}
+
+.dashboard-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.dashboard-metric-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-metric {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 252, 245, 0.72);
+}
+
+.dashboard-metric strong {
+  font-size: 1.35rem;
+}
+
+.dashboard-metric span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.dashboard-callout {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 252, 245, 0.72);
+}
+
+.dashboard-callout p,
+.dashboard-callout span {
+  margin: 0;
+  color: var(--muted);
+}
+
+.shortlist-band-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.shortlist-band-section {
+  display: grid;
+  gap: 12px;
+}
+
+.shortlist-band-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.shortlist-band-header span {
   color: var(--muted);
   font-size: 0.92rem;
 }
@@ -402,10 +534,17 @@ a:hover {
 }
 
 .leaflet-shell {
+  position: relative;
   min-height: 560px;
   overflow: hidden;
   border-radius: 22px;
   border: 1px solid rgba(49, 44, 35, 0.08);
+}
+
+.leaflet-shell-fullscreen {
+  min-height: 100vh;
+  border-radius: 0;
+  border: 0;
 }
 
 .leaflet-map {
@@ -413,8 +552,31 @@ a:hover {
   width: 100%;
 }
 
+.leaflet-shell-fullscreen .leaflet-map {
+  min-height: 100vh;
+}
+
 .leaflet-container {
   font: inherit;
+}
+
+.map-fullscreen-toggle {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 900;
+  padding: 10px 14px;
+  border: 1px solid rgba(49, 44, 35, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 252, 245, 0.92);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: 0 12px 28px rgba(49, 44, 35, 0.12);
+}
+
+.map-fullscreen-toggle:hover {
+  color: var(--accent);
 }
 
 .leaflet-popup-content {
@@ -451,6 +613,30 @@ a:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.source-link-menu {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.source-link-menu summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.source-link-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.source-link-list a {
+  padding: 8px 12px;
+  border: 1px solid rgba(49, 44, 35, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 252, 245, 0.72);
 }
 
 .selected-card {

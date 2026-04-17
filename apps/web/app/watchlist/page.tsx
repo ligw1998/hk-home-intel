@@ -212,6 +212,7 @@ export default function WatchlistPage() {
           <Link href="/">Back to dashboard</Link>
           <Link href="/activity">Open activity</Link>
           <Link href="/map">Open map view</Link>
+          <Link href="/shortlist">Open shortlist</Link>
           <Link href="/compare">Open compare</Link>
           <Link href="/system">Open system monitor</Link>
           <button type="button" onClick={addFilteredToCompare}>

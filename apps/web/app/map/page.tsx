@@ -6,11 +6,15 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CompareToggleButton } from "../components/compare-toggle-button";
+import { DecisionWorkflowNav } from "../components/decision-workflow-nav";
+import { MoneyValue } from "../components/money-value";
 import { formatListingSegment, SEGMENT_OPTIONS } from "../lib/segment";
 
 type DevelopmentSummary = {
   id: string;
   source_url: string | null;
+  available_sources: string[];
+  source_links: { source: string; url: string }[];
   display_name: string | null;
   district: string | null;
   region: string | null;
@@ -62,6 +66,12 @@ type SearchPreset = {
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 const DEFAULT_SEGMENTS = ["new", "first_hand_remaining", "second_hand"];
 const SUGGESTED_BEDROOM_VALUES = [2, 3, 1];
+const SOURCE_OPTIONS = [
+  { value: "all", label: "All sources" },
+  { value: "srpe", label: "Official / SRPE" },
+  { value: "centanet", label: "Centanet" },
+  { value: "ricacorp", label: "Ricacorp" },
+];
 
 const DevelopmentLeafletMap = dynamic(
   () =>
@@ -81,6 +91,31 @@ function formatPrice(amount: number | null): string {
     currency: "HKD",
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+function buildWhyNow(item: DevelopmentSummary): string {
+  const reasons: string[] = [];
+  if (item.active_listing_count >= 5) {
+    reasons.push("盘面活跃");
+  } else if (item.active_listing_count > 0) {
+    reasons.push("已有在售盘源");
+  }
+  if (item.active_listing_min_price_hkd !== null && item.active_listing_min_price_hkd <= 16_000_000) {
+    reasons.push("最低叫价仍在预算带内");
+  }
+  if (item.active_listing_bedroom_options.includes(2)) {
+    reasons.push("有 2 房信号");
+  } else if (item.active_listing_bedroom_options.includes(3)) {
+    reasons.push("有 3 房信号");
+  } else if (item.active_listing_bedroom_options.includes(1)) {
+    reasons.push("有 1 房信号");
+  }
+  if (item.listing_segment === "new" || item.listing_segment === "first_hand_remaining") {
+    reasons.push("属于新盘 / 一手范围");
+  } else if (item.age_years !== null && item.age_years <= 10) {
+    reasons.push("楼龄仍在优先窗口内");
+  }
+  return reasons.length > 0 ? reasons.slice(0, 3).join("，") + "。" : "目前更适合作为待观察地图点。";
 }
 
 function toggleStringValue(values: string[], value: string): string[] {
@@ -152,6 +187,7 @@ function MapPageContent() {
   const [region, setRegion] = useState("all");
   const [district, setDistrict] = useState("all");
   const [segments, setSegments] = useState<string[]>(DEFAULT_SEGMENTS);
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [maxBudgetHkd, setMaxBudgetHkd] = useState("");
   const [bedroomValues, setBedroomValues] = useState<number[]>([]);
   const [maxAgeYears, setMaxAgeYears] = useState("");
@@ -239,6 +275,9 @@ function MapPageContent() {
         if (segments.length > 0) {
           params.set("listing_segments", segments.join(","));
         }
+        if (sourceFilter !== "all") {
+          params.set("source", sourceFilter);
+        }
         if (maxBudgetHkd !== "") {
           params.set("max_budget_hkd", maxBudgetHkd);
         }
@@ -302,7 +341,7 @@ function MapPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [bedroomValues, district, maxAgeYears, maxBudgetHkd, region, search, searchParams, segments, watchlistByDevelopment, watchlistOnly]);
+  }, [bedroomValues, district, maxAgeYears, maxBudgetHkd, region, search, searchParams, segments, sourceFilter, watchlistByDevelopment, watchlistOnly]);
 
   const regions = useMemo(() => {
     return Array.from(
@@ -333,6 +372,7 @@ function MapPageContent() {
 
   function applySuggestedBuyerFocus() {
     setSegments(DEFAULT_SEGMENTS);
+    setSourceFilter("all");
     setMaxBudgetHkd("16000000");
     setBedroomValues(SUGGESTED_BEDROOM_VALUES);
     setMaxAgeYears("10");
@@ -345,6 +385,7 @@ function MapPageContent() {
     setRegion("all");
     setDistrict("all");
     setSegments(DEFAULT_SEGMENTS);
+    setSourceFilter("all");
     setMaxBudgetHkd("");
     setBedroomValues([]);
     setMaxAgeYears("");
@@ -430,6 +471,7 @@ function MapPageContent() {
         <div className="hero-actions">
           <Link href="/">Back to dashboard</Link>
           {selected ? <Link href={`/developments/${selected.id}`}>Open selected detail</Link> : null}
+          <Link href="/shortlist">Open shortlist</Link>
           <Link href="/activity">Open activity</Link>
           <Link href="/watchlist">Open watchlist</Link>
           <Link href="/system">Open system</Link>
@@ -440,6 +482,7 @@ function MapPageContent() {
             Clear filters
           </button>
         </div>
+        <DecisionWorkflowNav current="map" />
         {presetInfo ? <p className="muted">{presetInfo}</p> : null}
       </section>
 
@@ -492,6 +535,16 @@ function MapPageContent() {
               {districts.map((item) => (
                 <option key={item} value={item}>
                   {item}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Source</span>
+            <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
+              {SOURCE_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
                 </option>
               ))}
             </select>
@@ -691,9 +744,15 @@ function MapPageContent() {
               <span>{formatListingSegment(selected.listing_segment)}</span>
               <span>
                 {selected.active_listing_count > 0
-                  ? `${selected.active_listing_count} active listing(s) / from ${formatPrice(selected.active_listing_min_price_hkd)}`
+                  ? (
+                    <>
+                      {selected.active_listing_count} active listing(s) / from{" "}
+                      <MoneyValue amount={selected.active_listing_min_price_hkd} />
+                    </>
+                  )
                   : "No active listing rows yet"}
               </span>
+              <span className="decision-why-now">Why now: {buildWhyNow(selected)}</span>
               <span>
                 {selected.active_listing_bedroom_options.length > 0
                   ? `Bedrooms ${selected.active_listing_bedroom_options.join(", ")}`
@@ -720,12 +779,28 @@ function MapPageContent() {
                   developmentName={selected.display_name ?? selected.id}
                 />
                 <Link href={`/activity?development_id=${selected.id}`}>Recent activity</Link>
-                {selected.source_url ? (
+                {selected.source_links.length === 1 ? (
+                  <a href={selected.source_links[0].url} target="_blank" rel="noreferrer">
+                    Open source
+                  </a>
+                ) : selected.source_url ? (
                   <a href={selected.source_url} target="_blank" rel="noreferrer">
                     Open source
                   </a>
                 ) : null}
               </div>
+              {selected.source_links.length > 1 ? (
+                <details className="source-link-menu">
+                  <summary>Open source</summary>
+                  <div className="source-link-list">
+                    {selected.source_links.map((item) => (
+                      <a key={item.source} href={item.url} target="_blank" rel="noreferrer">
+                        {item.source}
+                      </a>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
             </div>
           ) : (
             <p className="muted">Select a point on the map.</p>
@@ -747,7 +822,7 @@ function MapPageContent() {
                   {item.district ?? "Unknown district"} / {formatListingSegment(item.listing_segment)}
                 </span>
                 <span>
-                  {formatPrice(item.active_listing_min_price_hkd)}
+                  <MoneyValue amount={item.active_listing_min_price_hkd} interactive={false} />
                   {" / "}
                   {item.active_listing_bedroom_options.length > 0
                     ? `${item.active_listing_bedroom_options.join(", ")} rooms`

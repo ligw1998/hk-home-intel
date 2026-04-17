@@ -128,6 +128,7 @@ function ActivityPageContent() {
         <div className="hero-actions">
           <Link href="/">Back to dashboard</Link>
           <Link href="/map">Open map</Link>
+          <Link href="/shortlist">Open shortlist</Link>
           <Link href="/watchlist">Open watchlist</Link>
           <Link href="/system">Open system</Link>
         </div>

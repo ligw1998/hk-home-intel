@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { CompareToggleButton } from "../../components/compare-toggle-button";
+import { MoneyValue } from "../../components/money-value";
 import { WatchlistButton } from "../../components/watchlist-button";
 import { formatEventType, formatListingStatus } from "../../lib/listing-events";
 import { formatListingSegment } from "../../lib/segment";
@@ -59,6 +60,8 @@ type ListingFeedItem = {
 type DevelopmentDetail = {
   id: string;
   source_url: string | null;
+  available_sources: string[];
+  source_links: { source: string; url: string }[];
   display_name: string | null;
   district: string | null;
   subdistrict: string | null;
@@ -123,6 +126,12 @@ type CompareSuggestionsResponse = {
   items: CompareSuggestionItem[];
 };
 
+type TaxEstimate = {
+  avd_hkd: number;
+  total_tax_hkd: number;
+  total_acquisition_cost_hkd: number;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 async function fetchDevelopmentDetail(developmentId: string): Promise<DevelopmentDetail | null> {
@@ -175,6 +184,20 @@ async function fetchDevelopmentComparables(
     throw new Error(`development comparables HTTP ${response.status}`);
   }
   return (await response.json()) as CompareSuggestionsResponse;
+}
+
+async function fetchTaxEstimate(priceHkd: number | null): Promise<TaxEstimate | null> {
+  if (priceHkd === null) {
+    return null;
+  }
+  const response = await fetch(
+    `${API_BASE}/api/v1/policies/tax-estimate?price_hkd=${priceHkd}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    throw new Error(`tax estimate HTTP ${response.status}`);
+  }
+  return (await response.json()) as TaxEstimate;
 }
 
 function formatPrice(amount: number | null): string {
@@ -311,6 +334,7 @@ export default async function DevelopmentDetailPage({
   if (!development) {
     notFound();
   }
+  const taxEstimate = await fetchTaxEstimate(development.active_listing_min_price_hkd);
 
   return (
     <main className="page-shell">
@@ -334,12 +358,28 @@ export default async function DevelopmentDetailPage({
           <Link href={`/activity?development_id=${development.id}`}>Recent activity</Link>
           <Link href={`/listings?development_id=${development.id}`}>Listing event feed</Link>
           <Link href="/watchlist">Open watchlist</Link>
-          {development.source_url ? (
+          {development.source_links.length === 1 ? (
+            <a href={development.source_links[0].url} target="_blank" rel="noreferrer">
+              Open source page
+            </a>
+          ) : development.source_url ? (
             <a href={development.source_url} target="_blank" rel="noreferrer">
               Open source page
             </a>
           ) : null}
         </div>
+        {development.source_links.length > 1 ? (
+          <details className="source-link-menu">
+            <summary>Open source page</summary>
+            <div className="source-link-list">
+              {development.source_links.map((item) => (
+                <a key={item.source} href={item.url} target="_blank" rel="noreferrer">
+                  {item.source}
+                </a>
+              ))}
+            </div>
+          </details>
+        ) : null}
       </section>
 
       <section className="development-detail-layout">
@@ -406,6 +446,14 @@ export default async function DevelopmentDetailPage({
                 <dt>Latest Listing Event</dt>
                 <dd>{formatCompactDateTime(development.latest_listing_event_at)}</dd>
               </div>
+              <div>
+                <dt>Stamp est.</dt>
+                <dd><MoneyValue amount={taxEstimate?.avd_hkd ?? null} /></dd>
+              </div>
+              <div>
+                <dt>Total buy-in</dt>
+                <dd><MoneyValue amount={taxEstimate?.total_acquisition_cost_hkd ?? null} /></dd>
+              </div>
             </dl>
           </article>
         </aside>
@@ -421,11 +469,11 @@ export default async function DevelopmentDetailPage({
                   <span>Recorded snapshots</span>
                 </div>
                 <div className="listing-feed-stat">
-                  <strong>{formatPrice(priceHistory.overall_min_price_hkd)}</strong>
+                  <strong><MoneyValue amount={priceHistory.overall_min_price_hkd} /></strong>
                   <span>Overall min</span>
                 </div>
                 <div className="listing-feed-stat">
-                  <strong>{formatPrice(priceHistory.overall_max_price_hkd)}</strong>
+                  <strong><MoneyValue amount={priceHistory.overall_max_price_hkd} /></strong>
                   <span>Overall max</span>
                 </div>
                 <div className="listing-feed-stat">
@@ -441,7 +489,7 @@ export default async function DevelopmentDetailPage({
                     <li key={point.recorded_at} className="listing-event-item">
                       <div className="listing-event-head">
                         <strong>
-                          {formatPrice(point.min_price_hkd)} → {formatPrice(point.max_price_hkd)}
+                          <MoneyValue amount={point.min_price_hkd} /> → <MoneyValue amount={point.max_price_hkd} />
                         </strong>
                         <span className="status-pill">
                           {point.event_count} event{point.event_count === 1 ? "" : "s"}
@@ -509,7 +557,7 @@ export default async function DevelopmentDetailPage({
                     {item.reasons.length > 0 ? ` / ${item.reasons.join(" / ")}` : ""}
                   </span>
                   <span>
-                    {formatPrice(item.development.current_min_price_hkd)} → {formatPrice(item.development.current_max_price_hkd)}
+                    <MoneyValue amount={item.development.current_min_price_hkd} /> → <MoneyValue amount={item.development.current_max_price_hkd} />
                   </span>
                   <div className="hero-actions">
                     <Link href={`/compare?ids=${development.id},${item.development.id}`}>Add to compare</Link>
@@ -557,7 +605,7 @@ export default async function DevelopmentDetailPage({
                           {item.source} / {formatDateTime(item.event_at)}
                         </span>
                         <span>
-                          {formatPrice(item.old_price_hkd)} → {formatPrice(item.new_price_hkd)}
+                          <MoneyValue amount={item.old_price_hkd} /> → <MoneyValue amount={item.new_price_hkd} />
                         </span>
                         <span>
                           {formatListingStatus(item.old_status ?? "new")} → {formatListingStatus(item.new_status)}
@@ -612,7 +660,7 @@ export default async function DevelopmentDetailPage({
                 <li key={item.id}>
                   <strong>{item.transaction_date ?? "Undated transaction"}</strong>
                   <span>{item.transaction_type}</span>
-                  <span>{formatPrice(item.price_hkd)}</span>
+                  <span><MoneyValue amount={item.price_hkd} /></span>
                 </li>
               ))}
             </ul>

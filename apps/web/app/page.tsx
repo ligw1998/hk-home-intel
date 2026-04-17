@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { CompareToggleButton } from "./components/compare-toggle-button";
+import { DecisionWorkflowNav } from "./components/decision-workflow-nav";
 import { formatListingSegment } from "./lib/segment";
 
 type HealthResponse = {
@@ -37,11 +38,79 @@ type DevelopmentListResponse = {
   total: number;
 };
 
+type ShortlistItem = {
+  id: string;
+  display_name: string | null;
+  district: string | null;
+  region: string | null;
+  listing_segment: string;
+  decision_score: number;
+  decision_band: string;
+  active_listing_min_price_hkd: number | null;
+  active_listing_max_price_hkd: number | null;
+  latest_listing_event_at: string | null;
+};
+
+type ShortlistResponse = {
+  items: ShortlistItem[];
+  total: number;
+};
+
+type ListingFeedItem = {
+  id: string;
+  event_type: string;
+  event_at: string;
+  source: string;
+  development_id: string;
+  development_name: string | null;
+  listing_id: string | null;
+  listing_title: string | null;
+  new_price_hkd: number | null;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+function formatDateTime(value: string | null): string {
+  if (!value) {
+    return "TBD";
+  }
+  return new Intl.DateTimeFormat("zh-HK", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function bandLabel(value: string): string {
+  switch (value) {
+    case "strong_fit":
+      return "Strong fit";
+    case "possible_fit":
+      return "Possible fit";
+    case "needs_review":
+      return "Needs review";
+    default:
+      return "Weak fit";
+  }
+}
+
+function formatCompactPrice(value: number | null): string {
+  if (value === null || Number.isNaN(value)) {
+    return "TBD";
+  }
+  if (value >= 1_000_000) {
+    return `HK$${(value / 1_000_000).toFixed(value >= 10_000_000 ? 1 : 2).replace(/\.0$/, "")}M`;
+  }
+  if (value >= 1_000) {
+    return `HK$${Math.round(value / 1_000)}K`;
+  }
+  return `HK$${Math.round(value)}`;
+}
 
 export default function HomePage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [developments, setDevelopments] = useState<DevelopmentSummary[]>([]);
+  const [shortlist, setShortlist] = useState<ShortlistItem[]>([]);
+  const [marketMoves, setMarketMoves] = useState<ListingFeedItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [developmentError, setDevelopmentError] = useState<string | null>(null);
 
@@ -50,9 +119,13 @@ export default function HomePage() {
 
     async function loadPageData() {
       try {
-        const [healthResponse, developmentResponse] = await Promise.all([
+        const [healthResponse, developmentResponse, shortlistResponse, marketMovesResponse] = await Promise.all([
           fetch(`${API_BASE}/api/v1/health`),
           fetch(`${API_BASE}/api/v1/developments?limit=6`),
+          fetch(
+            `${API_BASE}/api/v1/shortlist?lang=zh-Hant&max_budget_hkd=16000000&bedroom_values=2,3,1&max_age_years=10&extended_age_years=15&listing_segments=new,first_hand_remaining,second_hand&limit=8`,
+          ),
+          fetch(`${API_BASE}/api/v1/listings/feed?days=7&limit=8`),
         ]);
         if (!healthResponse.ok) {
           throw new Error(`health HTTP ${healthResponse.status}`);
@@ -60,12 +133,22 @@ export default function HomePage() {
         if (!developmentResponse.ok) {
           throw new Error(`developments HTTP ${developmentResponse.status}`);
         }
+        if (!shortlistResponse.ok) {
+          throw new Error(`shortlist HTTP ${shortlistResponse.status}`);
+        }
+        if (!marketMovesResponse.ok) {
+          throw new Error(`listings HTTP ${marketMovesResponse.status}`);
+        }
         const healthPayload = (await healthResponse.json()) as HealthResponse;
         const developmentPayload =
           (await developmentResponse.json()) as DevelopmentListResponse;
+        const shortlistPayload = (await shortlistResponse.json()) as ShortlistResponse;
+        const marketMovesPayload = (await marketMovesResponse.json()) as ListingFeedItem[];
         if (!cancelled) {
           setHealth(healthPayload);
           setDevelopments(developmentPayload.items);
+          setShortlist(shortlistPayload.items);
+          setMarketMoves(marketMovesPayload);
           setError(null);
           setDevelopmentError(null);
         }
@@ -91,18 +174,21 @@ export default function HomePage() {
         <p className="eyebrow">Dashboard</p>
         <h1>HK Home Intel</h1>
         <p className="lead">
-          Local-first Hong Kong residential property research workspace. The
-          Track official and commercial-source housing data in one local workspace:
+          Local-first Hong Kong residential property research workspace. Track
+          official and commercial-source housing data in one local workspace:
           map, watchlist, system monitor, activity feed, listing flow, and
           development compare.
         </p>
         <div className="hero-actions">
           <Link href="/map">Open map view</Link>
+          <Link href="/shortlist">Open shortlist</Link>
+          <Link href="/compare">Open compare</Link>
           <Link href="/activity">Open activity feed</Link>
           <Link href="/listings">Open listing feed</Link>
           <Link href="/watchlist">Open watchlist</Link>
           <Link href="/system">Open system monitor</Link>
         </div>
+        <DecisionWorkflowNav current="dashboard" />
       </section>
 
       <section className="grid">
@@ -140,16 +226,47 @@ export default function HomePage() {
         </article>
 
         <article className="panel">
-          <h2>Workspace Overview</h2>
-          <ul className="bullet-list">
-            <li>Core canonical development, document, listing, and transaction tables</li>
-            <li>Official SRPE index and selected development detail import</li>
-            <li>Coordinate-backed Leaflet map with watchlist overlay</li>
-            <li>Recent activity feed across refresh runs, snapshots, and watchlist updates</li>
-            <li>System monitor with UI-triggered refresh plans</li>
-            <li>Commercial listing event feed with canonical price events</li>
-            <li>Three-language display fallback in the API layer</li>
-          </ul>
+          <h2>Decision Pulse</h2>
+          {shortlist.length > 0 ? (
+            <div className="dashboard-stack">
+              <div className="dashboard-metric-row">
+                <div className="dashboard-metric">
+                  <strong>{shortlist.filter((item) => item.decision_band === "strong_fit").length}</strong>
+                  <span>Strong fit</span>
+                </div>
+                <div className="dashboard-metric">
+                  <strong>{shortlist.filter((item) => item.decision_band === "possible_fit").length}</strong>
+                  <span>Possible fit</span>
+                </div>
+                <div className="dashboard-metric">
+                  <strong>{marketMoves.length}</strong>
+                  <span>Recent moves</span>
+                </div>
+              </div>
+              <div className="dashboard-callout">
+                <strong>Best current candidate</strong>
+                <p>
+                  {shortlist[0]?.display_name ?? "TBD"}
+                  {" / "}
+                  {bandLabel(shortlist[0]?.decision_band ?? "weak_fit")}
+                  {" / score "}
+                  {shortlist[0]?.decision_score ?? 0}
+                </p>
+                <span>
+                  {shortlist[0]?.district ?? "Unknown district"}
+                  {shortlist[0]?.region ? ` / ${shortlist[0].region}` : ""}
+                  {" / "}
+                  {formatListingSegment(shortlist[0]?.listing_segment ?? "mixed")}
+                </span>
+                <div className="hero-actions">
+                  {shortlist[0] ? <Link href={`/developments/${shortlist[0].id}`}>Open candidate</Link> : null}
+                  <Link href="/shortlist">Open full shortlist</Link>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="muted">No shortlist candidates yet.</p>
+          )}
         </article>
 
         <article className="panel">
@@ -185,6 +302,65 @@ export default function HomePage() {
               <p className="muted">No developments imported yet.</p>
               <code>conda run -n py311 hhi-worker import-srpe-index --lang en --limit 5</code>
             </div>
+          )}
+        </article>
+      </section>
+
+      <section className="grid">
+        <article className="panel detail-span-2">
+          <h2>Shortlist Snapshot</h2>
+          {shortlist.length > 0 ? (
+            <ul className="development-list">
+              {shortlist.slice(0, 4).map((item) => (
+                <li key={item.id}>
+                  <strong>
+                    <Link href={`/developments/${item.id}`}>
+                      {item.display_name ?? item.id}
+                    </Link>
+                  </strong>
+                  <span>
+                    {bandLabel(item.decision_band)}
+                    {" / score "}
+                    {item.decision_score}
+                    {" / "}
+                    {item.district ?? "Unknown district"}
+                    {item.region ? ` / ${item.region}` : ""}
+                  </span>
+                  <span>
+                    {formatCompactPrice(item.active_listing_min_price_hkd)}
+                    {" → "}
+                    {formatCompactPrice(item.active_listing_max_price_hkd)}
+                    {" / "}
+                    {formatListingSegment(item.listing_segment)}
+                  </span>
+                  <span>Latest event: {formatDateTime(item.latest_listing_event_at)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">Shortlist is still empty.</p>
+          )}
+        </article>
+
+        <article className="panel">
+          <h2>Recent Market Moves</h2>
+          {marketMoves.length > 0 ? (
+            <ul className="development-list">
+              {marketMoves.slice(0, 5).map((item) => (
+                <li key={item.id}>
+                  <strong>
+                    <Link href={item.listing_id ? `/listings/${item.listing_id}` : `/developments/${item.development_id}`}>
+                      {item.development_name ?? item.listing_title ?? item.id}
+                    </Link>
+                  </strong>
+                  <span>{item.source} / {item.event_type.replaceAll("_", " ")}</span>
+                  <span>{formatCompactPrice(item.new_price_hkd)}</span>
+                  <span>{formatDateTime(item.event_at)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No recent listing moves yet.</p>
           )}
         </article>
       </section>

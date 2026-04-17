@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { MoneyValue } from "../../components/money-value";
 import { formatEventType, formatListingStatus } from "../../lib/listing-events";
 
 type ListingDetail = {
@@ -89,18 +90,13 @@ type ComparableListingsResponse = {
   items: ComparableListing[];
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+type TaxEstimate = {
+  avd_hkd: number;
+  total_tax_hkd: number;
+  total_acquisition_cost_hkd: number;
+};
 
-function formatPrice(amount: number | null): string {
-  if (amount === null) {
-    return "TBD";
-  }
-  return new Intl.NumberFormat("en-HK", {
-    style: "currency",
-    currency: "HKD",
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 function formatDateTime(value: string | null): string {
   if (!value) {
@@ -119,6 +115,7 @@ export default function ListingDetailPage() {
   const [events, setEvents] = useState<ListingEvent[]>([]);
   const [priceHistory, setPriceHistory] = useState<ListingPriceHistory | null>(null);
   const [comparables, setComparables] = useState<ComparableListing[]>([]);
+  const [taxEstimate, setTaxEstimate] = useState<TaxEstimate | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -153,11 +150,22 @@ export default function ListingDetailPage() {
         const eventsPayload = (await eventsResponse.json()) as ListingEvent[];
         const priceHistoryPayload = (await priceHistoryResponse.json()) as ListingPriceHistory;
         const comparablesPayload = (await comparablesResponse.json()) as ComparableListingsResponse;
+        let taxEstimatePayload: TaxEstimate | null = null;
+        if (detailPayload.asking_price_hkd !== null) {
+          const taxEstimateResponse = await fetch(
+            `${API_BASE}/api/v1/policies/tax-estimate?price_hkd=${detailPayload.asking_price_hkd}`,
+          );
+          if (!taxEstimateResponse.ok) {
+            throw new Error(`tax estimate HTTP ${taxEstimateResponse.status}`);
+          }
+          taxEstimatePayload = (await taxEstimateResponse.json()) as TaxEstimate;
+        }
         if (!cancelled) {
           setDetail(detailPayload);
           setEvents(eventsPayload);
           setPriceHistory(priceHistoryPayload);
           setComparables(comparablesPayload.items);
+          setTaxEstimate(taxEstimatePayload);
           setError(null);
         }
       } catch (err) {
@@ -207,14 +215,16 @@ export default function ListingDetailPage() {
             <dl className="kv-list compact-kv-list">
               <div><dt>Source</dt><dd>{detail.source}</dd></div>
               <div><dt>Status</dt><dd>{detail.status}</dd></div>
-              <div><dt>Asking</dt><dd>{formatPrice(detail.asking_price_hkd)}</dd></div>
-              <div><dt>Price / sqft</dt><dd>{detail.price_per_sqft ? formatPrice(detail.price_per_sqft) : "TBD"}</dd></div>
+              <div><dt>Asking</dt><dd><MoneyValue amount={detail.asking_price_hkd} /></dd></div>
+              <div><dt>Price / sqft</dt><dd><MoneyValue amount={detail.price_per_sqft} /></dd></div>
               <div><dt>Saleable</dt><dd>{detail.saleable_area_sqft ? `${detail.saleable_area_sqft} sqft` : "TBD"}</dd></div>
               <div><dt>Bedrooms</dt><dd>{detail.bedrooms ?? "TBD"}</dd></div>
               <div><dt>Bathrooms</dt><dd>{detail.bathrooms ?? "TBD"}</dd></div>
               <div><dt>Address</dt><dd>{detail.address ?? "TBD"}</dd></div>
               <div><dt>Updated</dt><dd>{detail.update_date ?? "TBD"}</dd></div>
-              <div><dt>Monthly payment</dt><dd>{formatPrice(detail.monthly_payment_hkd)}</dd></div>
+              <div><dt>Monthly payment</dt><dd><MoneyValue amount={detail.monthly_payment_hkd} /></dd></div>
+              <div><dt>Stamp est.</dt><dd><MoneyValue amount={taxEstimate?.avd_hkd ?? null} /></dd></div>
+              <div><dt>Total buy-in</dt><dd><MoneyValue amount={taxEstimate?.total_acquisition_cost_hkd ?? null} /></dd></div>
               <div><dt>Age</dt><dd>{detail.age_years !== null ? `${detail.age_years} years` : "TBD"}</dd></div>
               <div><dt>Orientation</dt><dd>{detail.orientation ?? "TBD"}</dd></div>
               <div><dt>First seen</dt><dd>{formatDateTime(detail.first_seen_at)}</dd></div>
@@ -253,10 +263,10 @@ export default function ListingDetailPage() {
             {priceHistory ? (
               <>
                 <dl className="kv-list compact-kv-list">
-                  <div><dt>Current</dt><dd>{formatPrice(priceHistory.current_price_hkd)}</dd></div>
-                  <div><dt>Previous</dt><dd>{formatPrice(priceHistory.previous_price_hkd)}</dd></div>
-                  <div><dt>Lowest</dt><dd>{formatPrice(priceHistory.lowest_price_hkd)}</dd></div>
-                  <div><dt>Highest</dt><dd>{formatPrice(priceHistory.highest_price_hkd)}</dd></div>
+                  <div><dt>Current</dt><dd><MoneyValue amount={priceHistory.current_price_hkd} /></dd></div>
+                  <div><dt>Previous</dt><dd><MoneyValue amount={priceHistory.previous_price_hkd} /></dd></div>
+                  <div><dt>Lowest</dt><dd><MoneyValue amount={priceHistory.lowest_price_hkd} /></dd></div>
+                  <div><dt>Highest</dt><dd><MoneyValue amount={priceHistory.highest_price_hkd} /></dd></div>
                   <div><dt>Points</dt><dd>{priceHistory.point_count}</dd></div>
                   <div><dt>First seen</dt><dd>{formatDateTime(priceHistory.first_seen_at)}</dd></div>
                   <div><dt>Last seen</dt><dd>{formatDateTime(priceHistory.last_seen_at)}</dd></div>
@@ -269,7 +279,7 @@ export default function ListingDetailPage() {
                       .map((point) => (
                         <li key={point.event_id ?? `${point.event_type}-${point.recorded_at}`} className="listing-event-item">
                           <div className="listing-event-head">
-                            <strong>{formatPrice(point.price_hkd)}</strong>
+                            <strong><MoneyValue amount={point.price_hkd} /></strong>
                             <span className={`listing-event-badge listing-event-badge-${point.event_type}`}>
                               {formatEventType(point.event_type)}
                             </span>
@@ -303,7 +313,7 @@ export default function ListingDetailPage() {
                       {item.district ? ` / ${item.district}` : ""}
                     </span>
                     <span>
-                      {formatPrice(item.asking_price_hkd)}
+                      <MoneyValue amount={item.asking_price_hkd} />
                       {item.saleable_area_sqft !== null ? ` / ${item.saleable_area_sqft} sqft` : ""}
                       {item.bedrooms !== null ? ` / ${item.bedrooms === 0 ? "開放式" : `${item.bedrooms}房`}` : ""}
                     </span>
@@ -337,7 +347,7 @@ export default function ListingDetailPage() {
                       </span>
                     </div>
                     <span>{formatDateTime(item.event_at)}</span>
-                    <span>{formatPrice(item.old_price_hkd)} → {formatPrice(item.new_price_hkd)}</span>
+                    <span><MoneyValue amount={item.old_price_hkd} /> → <MoneyValue amount={item.new_price_hkd} /></span>
                     <span>{formatListingStatus(item.old_status ?? "new")} → {formatListingStatus(item.new_status)}</span>
                   </li>
                 ))}

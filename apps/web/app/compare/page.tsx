@@ -1,5 +1,8 @@
 import Link from "next/link";
 
+import { DecisionWorkflowNav } from "../components/decision-workflow-nav";
+import { MoneyValue } from "../components/money-value";
+
 type CompareDevelopmentItem = {
   id: string;
   source: string | null;
@@ -44,16 +47,34 @@ type CompareSuggestionsResponse = {
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const DEFAULT_BUDGET_HKD = 16_000_000;
+const DEFAULT_BEDROOM_ORDER = [2, 3, 1];
+const DEFAULT_MAX_AGE_YEARS = 10;
+const DEFAULT_EXTENDED_AGE_YEARS = 15;
 
-function formatPrice(amount: number | null): string {
-  if (amount === null) {
-    return "TBD";
+type DecisionView = {
+  band: string;
+  score: number;
+  reasons: string[];
+  cautions: string[];
+};
+
+type ScoredCompareItem = {
+  item: CompareDevelopmentItem;
+  decision: DecisionView;
+};
+
+function bandLabel(value: string): string {
+  switch (value) {
+    case "strong_fit":
+      return "Strong fit";
+    case "possible_fit":
+      return "Possible fit";
+    case "needs_review":
+      return "Needs review";
+    default:
+      return "Weak fit";
   }
-  return new Intl.NumberFormat("en-HK", {
-    style: "currency",
-    currency: "HKD",
-    maximumFractionDigits: 0,
-  }).format(amount);
 }
 
 function formatDateTime(value: string | null): string {
@@ -83,6 +104,158 @@ function formatSourceMix(mix: Record<string, number>): string {
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .map(([source, count]) => `${source} × ${count}`);
   return parts.length > 0 ? parts.join(" / ") : "No active source rows";
+}
+
+function decisionBand(score: number): string {
+  if (score >= 75) {
+    return "strong_fit";
+  }
+  if (score >= 55) {
+    return "possible_fit";
+  }
+  if (score >= 35) {
+    return "needs_review";
+  }
+  return "weak_fit";
+}
+
+function buildDecisionView(item: CompareDevelopmentItem): DecisionView {
+  let score = 0;
+  const reasons: string[] = [];
+  const cautions: string[] = [];
+
+  if (item.listing_segment === "new") {
+    score += 18;
+    reasons.push("新盘 / 楼花库存，符合当前优先范围。");
+  } else if (item.listing_segment === "first_hand_remaining") {
+    score += 16;
+    reasons.push("一手余货仍在售，属于核心关注范围。");
+  } else if (item.listing_segment === "second_hand") {
+    score += 10;
+    reasons.push("属于二手盘范围，可作为新盘和一手盘之外的替代候选。");
+  } else {
+    score += 12;
+    reasons.push("盘面同时覆盖多种来源，可继续细看。");
+  }
+
+  if (item.current_min_price_hkd !== null) {
+    const ratio = item.current_min_price_hkd / DEFAULT_BUDGET_HKD;
+    if (ratio <= 0.8) {
+      score += 30;
+      reasons.push("最低在售价明显落在预算内。");
+    } else if (ratio <= 1.0) {
+      score += 26;
+      reasons.push("最低在售价位于预算上限内。");
+    } else if (ratio <= 1.1) {
+      score += 10;
+      cautions.push("最低在售价略高于预算上限，需要更强谈价空间。");
+    } else {
+      cautions.push("最低在售价明显高于当前预算。");
+    }
+  } else {
+    cautions.push("当前缺少可用叫价，预算匹配度仍不够明确。");
+  }
+
+  const matchedRank = DEFAULT_BEDROOM_ORDER.findIndex((value) =>
+    item.active_listing_bedroom_options.includes(value),
+  );
+  if (matchedRank === 0) {
+    score += 22;
+    reasons.push("当前盘面包含你最优先的 2 房。");
+  } else if (matchedRank === 1) {
+    score += 16;
+    reasons.push("当前盘面包含你第二优先的 3 房。");
+  } else if (matchedRank === 2) {
+    score += 10;
+    reasons.push("当前盘面包含你第三优先的 1 房。");
+  } else if (item.active_listing_count > 0 && item.active_listing_bedroom_options.length === 0) {
+    score += 4;
+    cautions.push("当前有盘源，但房型字段覆盖仍不完整。");
+  } else {
+    cautions.push("当前盘面未看到你优先的 2房 / 3房 / 1房信号。");
+  }
+
+  if (item.listing_segment === "new" || item.listing_segment === "first_hand_remaining") {
+    score += 18;
+    reasons.push("主力盘面不是二手房龄约束问题。");
+  } else if (item.age_years === null) {
+    cautions.push("房龄信息不完整，无法判断是否落在 10-15 年窗口内。");
+  } else if (item.age_years <= DEFAULT_MAX_AGE_YEARS) {
+    score += 16;
+    reasons.push(`楼龄 ${item.age_years} 年，落在你优先的 ${DEFAULT_MAX_AGE_YEARS} 年内。`);
+  } else if (item.age_years <= DEFAULT_EXTENDED_AGE_YEARS) {
+    score += 8;
+    reasons.push(`楼龄 ${item.age_years} 年，仍在 ${DEFAULT_EXTENDED_AGE_YEARS} 年扩展范围内。`);
+    cautions.push("楼龄高于理想 10 年窗口。");
+  } else {
+    cautions.push(`楼龄 ${item.age_years} 年，已超出当前扩展范围。`);
+  }
+
+  if (item.source_confidence === "high") {
+    score += 8;
+    reasons.push("当前主数据可信度较高。");
+  } else if (item.source_confidence === "medium") {
+    score += 5;
+  }
+
+  if (item.active_listing_count >= 5) {
+    score += 10;
+    reasons.push("当前有多条活跃盘源，可观察盘面更充分。");
+  } else if (item.active_listing_count > 0) {
+    score += 6;
+    reasons.push("当前有活跃盘源可供继续跟踪。");
+  } else {
+    cautions.push("当前缺少活跃盘源，只能先看 development 级信息。");
+  }
+
+  if (item.latest_listing_event_at) {
+    const daysSince = Math.floor(
+      (Date.now() - new Date(item.latest_listing_event_at).getTime()) / (1000 * 60 * 60 * 24),
+    );
+    if (daysSince <= 7) {
+      score += 6;
+      reasons.push("最近 7 天有盘面变化，适合继续跟踪。");
+    } else if (daysSince > 30) {
+      cautions.push("盘面变化较旧，近期热度一般。");
+    }
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  return {
+    band: decisionBand(score),
+    score,
+    reasons: reasons.slice(0, 4),
+    cautions: cautions.slice(0, 4),
+  };
+}
+
+function buildCompareSummary(items: ScoredCompareItem[]) {
+  if (items.length === 0) {
+    return null;
+  }
+  const sorted = [...items].sort((left, right) => right.decision.score - left.decision.score);
+  const bestOverall = sorted[0];
+  const bestBudgetFit =
+    [...items]
+      .filter((entry) => entry.item.current_min_price_hkd !== null)
+      .sort(
+        (left, right) =>
+          (left.item.current_min_price_hkd ?? Number.MAX_SAFE_INTEGER) -
+          (right.item.current_min_price_hkd ?? Number.MAX_SAFE_INTEGER),
+      )[0] ?? null;
+  const bestBedroomFit =
+    [...items].sort((left, right) => {
+      const leftRank = DEFAULT_BEDROOM_ORDER.findIndex((value) =>
+        left.item.active_listing_bedroom_options.includes(value),
+      );
+      const rightRank = DEFAULT_BEDROOM_ORDER.findIndex((value) =>
+        right.item.active_listing_bedroom_options.includes(value),
+      );
+      const normalizedLeft = leftRank === -1 ? 999 : leftRank;
+      const normalizedRight = rightRank === -1 ? 999 : rightRank;
+      return normalizedLeft - normalizedRight || right.decision.score - left.decision.score;
+    })[0] ?? null;
+  return { bestOverall, bestBudgetFit, bestBedroomFit };
 }
 
 async function fetchCompare(ids: string[]): Promise<CompareDevelopmentsResponse | null> {
@@ -131,6 +304,12 @@ export default async function ComparePage({
   const compare = ids.length > 0 ? await fetchCompare(ids) : null;
   const focusId = compare?.focus_development_id ?? ids[0] ?? null;
   const suggestions = focusId ? await fetchSuggestions(focusId) : null;
+  const scoredItems =
+    compare?.items.map((item) => ({
+      item,
+      decision: buildDecisionView(item),
+    })) ?? [];
+  const compareSummary = buildCompareSummary(scoredItems);
 
   return (
     <main className="page-shell">
@@ -144,22 +323,50 @@ export default async function ComparePage({
         <div className="hero-actions">
           <Link href="/">Back to dashboard</Link>
           <Link href="/map">Open map</Link>
+          <Link href="/shortlist">Open shortlist</Link>
           <Link href="/listings">Open listing feed</Link>
           <Link href="/watchlist">Open watchlist</Link>
         </div>
+        <DecisionWorkflowNav current="compare" />
       </section>
 
       <section className="compare-layout">
         <article className="panel compare-main">
           <h2>Selected Developments</h2>
+          {compareSummary ? (
+            <div className="compare-summary">
+              <div className="compare-summary-card">
+                <strong>Current lead</strong>
+                <span>{compareSummary.bestOverall.item.display_name ?? compareSummary.bestOverall.item.id}</span>
+                <span>
+                  {bandLabel(compareSummary.bestOverall.decision.band)}
+                  {" / score "}
+                  {compareSummary.bestOverall.decision.score}
+                </span>
+              </div>
+              <div className="compare-summary-card">
+                <strong>Lowest current entry</strong>
+                <span>{compareSummary.bestBudgetFit?.item.display_name ?? "TBD"}</span>
+                <span><MoneyValue amount={compareSummary.bestBudgetFit?.item.current_min_price_hkd ?? null} /></span>
+              </div>
+              <div className="compare-summary-card">
+                <strong>Closest bedroom fit</strong>
+                <span>{compareSummary.bestBedroomFit?.item.display_name ?? "TBD"}</span>
+                <span>{formatBedroomMix(compareSummary.bestBedroomFit?.item.active_listing_bedroom_mix ?? {})}</span>
+              </div>
+            </div>
+          ) : null}
           {compare && compare.items.length > 0 ? (
             <div className="compare-grid">
-              {compare.items.map((item) => (
+              {scoredItems.map(({ item, decision }) => (
                 <article key={item.id} className="compare-card">
                   <div className="listing-event-head">
                     <strong>{item.display_name ?? item.id}</strong>
                     <span className="status-pill">{item.active_listing_count} active</span>
                   </div>
+                  <span className="compare-card-meta">
+                    {bandLabel(decision.band)} / score {decision.score}
+                  </span>
                   <span className="compare-card-meta">
                     {item.source ?? "unknown source"}
                     {" / "}
@@ -169,11 +376,11 @@ export default async function ComparePage({
                   <dl className="kv-list compact-kv-list">
                     <div>
                       <dt>Current Band</dt>
-                      <dd>{formatPrice(item.current_min_price_hkd)} → {formatPrice(item.current_max_price_hkd)}</dd>
+                      <dd><MoneyValue amount={item.current_min_price_hkd} /> → <MoneyValue amount={item.current_max_price_hkd} /></dd>
                     </div>
                     <div>
                       <dt>Observed Range</dt>
-                      <dd>{formatPrice(item.overall_min_price_hkd)} → {formatPrice(item.overall_max_price_hkd)}</dd>
+                      <dd><MoneyValue amount={item.overall_min_price_hkd} /> → <MoneyValue amount={item.overall_max_price_hkd} /></dd>
                     </div>
                     <div>
                       <dt>Bedroom Mix</dt>
@@ -196,6 +403,28 @@ export default async function ComparePage({
                       <dd>{item.developer_names.length > 0 ? item.developer_names.join(" / ") : "TBD"}</dd>
                     </div>
                   </dl>
+                  <div className="shortlist-reasons">
+                    <div>
+                      <strong>Why it fits</strong>
+                      <ul className="bullet-list">
+                        {decision.reasons.length > 0 ? (
+                          decision.reasons.map((reason) => <li key={reason}>{reason}</li>)
+                        ) : (
+                          <li>No strong fit signal yet.</li>
+                        )}
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>Why to be careful</strong>
+                      <ul className="bullet-list">
+                        {decision.cautions.length > 0 ? (
+                          decision.cautions.map((risk) => <li key={risk}>{risk}</li>)
+                        ) : (
+                          <li>No major caution flagged yet.</li>
+                        )}
+                      </ul>
+                    </div>
+                  </div>
                   <div className="hero-actions">
                     <Link
                       href={
@@ -244,7 +473,7 @@ export default async function ComparePage({
                         {item.reasons.length > 0 ? ` / ${item.reasons.join(" / ")}` : ""}
                       </span>
                       <span>
-                        {formatPrice(item.development.current_min_price_hkd)} → {formatPrice(item.development.current_max_price_hkd)}
+                        <MoneyValue amount={item.development.current_min_price_hkd} /> → <MoneyValue amount={item.development.current_max_price_hkd} />
                       </span>
                       <div className="hero-actions">
                         <Link href={`/compare?ids=${nextIds.join(",")}`}>Add to compare</Link>
