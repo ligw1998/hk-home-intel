@@ -68,6 +68,17 @@ class CommercialMonitorRebalanceSummary:
 
 
 @dataclass
+class CommercialMonitorActivationSummary:
+    source: str | None
+    scope_type: str | None
+    target_active: bool
+    scanned: int
+    updated: int
+    unchanged: int
+    monitors: list[dict[str, Any]]
+
+
+@dataclass
 class _DevelopmentContext:
     development: Development
     active_listing_sources: set[str]
@@ -638,6 +649,59 @@ def rebalance_auto_discovered_monitors(
         updated=updated,
         unchanged=unchanged,
         unmatched=unmatched,
+        monitors=details,
+    )
+
+
+def set_commercial_monitors_active_state(
+    session: Session,
+    *,
+    source: str | None = None,
+    scope_type: str | None = None,
+    target_active: bool,
+    limit: int | None = None,
+) -> CommercialMonitorActivationSummary:
+    query = select(CommercialSearchMonitor)
+    if source:
+        query = query.where(CommercialSearchMonitor.source == source)
+    if scope_type:
+        query = query.where(CommercialSearchMonitor.scope_type == scope_type)
+    monitors = session.scalars(query.order_by(CommercialSearchMonitor.updated_at.desc())).all()
+    if limit is not None:
+        monitors = monitors[:limit]
+
+    updated = 0
+    unchanged = 0
+    details: list[dict[str, Any]] = []
+
+    for monitor in monitors:
+        changed = monitor.is_active != target_active
+        if changed:
+            monitor.is_active = target_active
+            updated += 1
+            status = "updated"
+        else:
+            unchanged += 1
+            status = "unchanged"
+        details.append(
+            {
+                "monitor_id": monitor.id,
+                "name": monitor.name,
+                "search_url": monitor.search_url,
+                "scope_type": monitor.scope_type,
+                "is_active": monitor.is_active,
+                "status": status,
+            }
+        )
+
+    session.commit()
+    return CommercialMonitorActivationSummary(
+        source=source,
+        scope_type=scope_type,
+        target_active=target_active,
+        scanned=len(monitors),
+        updated=updated,
+        unchanged=unchanged,
         monitors=details,
     )
 

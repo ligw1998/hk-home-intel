@@ -10,6 +10,7 @@ from hk_home_intel_domain.commercial_discovery import (
     _ricacorp_name_hints,
     discover_commercial_monitor_candidates,
     rebalance_auto_discovered_monitors,
+    set_commercial_monitors_active_state,
 )
 from hk_home_intel_connectors.ricacorp import RicacorpAdapter
 from hk_home_intel_domain.enums import JobRunStatus
@@ -879,3 +880,50 @@ def test_ricacorp_extract_estate_buy_list_url_can_fallback_to_server_state() -> 
     )
 
     assert buy_list_url == "https://www.ricacorp.com/zh-hk/property/list/buy/%E5%8F%88%E4%B8%80%E5%B1%85-bigest-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk"
+
+
+def test_set_commercial_monitors_active_state_can_filter_auto_discovered(tmp_path: Path) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-monitor-activation.db'}")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        session.add_all(
+            [
+                CommercialSearchMonitor(
+                    source="ricacorp",
+                    name="Auto discovered one",
+                    search_url="https://example.test/1",
+                    scope_type="development_auto",
+                    is_active=False,
+                ),
+                CommercialSearchMonitor(
+                    source="ricacorp",
+                    name="Auto discovered two",
+                    search_url="https://example.test/2",
+                    scope_type="development_auto",
+                    is_active=False,
+                ),
+                CommercialSearchMonitor(
+                    source="ricacorp",
+                    name="Generic buy feed",
+                    search_url="https://example.test/3",
+                    scope_type="district",
+                    is_active=False,
+                ),
+            ]
+        )
+        session.commit()
+
+        summary = set_commercial_monitors_active_state(
+            session,
+            source="ricacorp",
+            scope_type="development_auto",
+            target_active=True,
+        )
+
+        assert summary.scanned == 2
+        assert summary.updated == 2
+        monitors = session.scalars(select(CommercialSearchMonitor).order_by(CommercialSearchMonitor.search_url)).all()
+        assert monitors[0].is_active is True
+        assert monitors[1].is_active is True
+        assert monitors[2].is_active is False

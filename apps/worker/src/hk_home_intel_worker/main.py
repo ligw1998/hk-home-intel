@@ -23,6 +23,7 @@ from hk_home_intel_domain.commercial_discovery import (
     discover_commercial_monitor_candidates,
     rebalance_auto_discovered_monitors,
     serialize_commercial_discovery_summary,
+    set_commercial_monitors_active_state,
 )
 from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
 from hk_home_intel_domain.refresh import (
@@ -120,6 +121,14 @@ def main() -> None:
         return
     if args.command == "rebalance-commercial-monitors":
         run_rebalance_commercial_monitors(args.source)
+        return
+    if args.command == "set-commercial-monitors-active":
+        run_set_commercial_monitors_active(
+            source=args.source,
+            auto_discovered=args.auto_discovered,
+            target_active=not args.inactive,
+            limit=args.limit,
+        )
         return
     if args.command == "preflight-check":
         run_preflight_check()
@@ -252,6 +261,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     rebalance_parser = subparsers.add_parser("rebalance-commercial-monitors")
     rebalance_parser.add_argument("--source", dest="source", default=None)
+
+    activation_parser = subparsers.add_parser("set-commercial-monitors-active")
+    activation_parser.add_argument("--source", dest="source", default=None)
+    activation_parser.add_argument("--auto-discovered", dest="auto_discovered", action="store_true")
+    activation_parser.add_argument("--inactive", dest="inactive", action="store_true")
+    activation_parser.add_argument("--limit", dest="limit", type=int, default=None)
 
     subparsers.add_parser("preflight-check")
 
@@ -704,6 +719,40 @@ def run_rebalance_commercial_monitors(source: str | None) -> None:
                 "updated": summary.updated,
                 "unchanged": summary.unchanged,
                 "unmatched": summary.unmatched,
+                "monitors": summary.monitors,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+def run_set_commercial_monitors_active(
+    *,
+    source: str | None,
+    auto_discovered: bool,
+    target_active: bool,
+    limit: int | None,
+) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = set_commercial_monitors_active_state(
+            session,
+            source=source,
+            scope_type="development_auto" if auto_discovered else None,
+            target_active=target_active,
+            limit=limit,
+        )
+    print(
+        json.dumps(
+            {
+                "source": summary.source,
+                "scope_type": summary.scope_type,
+                "target_active": summary.target_active,
+                "scanned": summary.scanned,
+                "updated": summary.updated,
+                "unchanged": summary.unchanged,
                 "monitors": summary.monitors,
             },
             indent=2,
