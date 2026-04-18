@@ -42,16 +42,29 @@ function segmentColor(segment: string): string {
   return "#7a7266";
 }
 
-function FitToDevelopments({ items }: { items: DevelopmentSummary[] }) {
+const DEFAULT_MAP_CENTER: [number, number] = [22.2820, 114.1588];
+const DEFAULT_MAP_ZOOM = 12;
+
+function FitToDevelopments({
+  items,
+  enabled,
+}: {
+  items: DevelopmentSummary[];
+  enabled: boolean;
+}) {
   const map = useMap();
 
   useEffect(() => {
+    if (!enabled) {
+      map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
+      return;
+    }
     const points = items
       .filter((item) => item.lat !== null && item.lng !== null)
       .map((item) => [item.lat as number, item.lng as number] as [number, number]);
 
     if (points.length === 0) {
-      map.setView([22.3193, 114.1694], 10);
+      map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
       return;
     }
     if (points.length === 1) {
@@ -143,8 +156,8 @@ export function DevelopmentLeafletMap({
         {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
       </button>
       <MapContainer
-        center={[22.3193, 114.1694]}
-        zoom={11}
+        center={DEFAULT_MAP_CENTER}
+        zoom={DEFAULT_MAP_ZOOM}
         scrollWheelZoom
         className="leaflet-map"
       >
@@ -152,7 +165,7 @@ export function DevelopmentLeafletMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitToDevelopments items={developments} />
+        <FitToDevelopments items={developments} enabled={Boolean(selectedId)} />
         <PanToSelection item={selected} />
         <InvalidateOnFullscreen tick={fullscreenTick} />
         {developments.map((item) => {

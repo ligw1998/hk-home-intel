@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { CompareToggleButton } from "./components/compare-toggle-button";
-import { DecisionWorkflowNav } from "./components/decision-workflow-nav";
 import { formatListingSegment } from "./lib/segment";
 
 type HealthResponse = {
@@ -196,15 +195,14 @@ export default function HomePage() {
           development compare.
         </p>
         <div className="hero-actions">
-          <Link href="/map">Open map view</Link>
-          <Link href="/shortlist">Open shortlist</Link>
-          <Link href="/compare">Open compare</Link>
-          <Link href="/activity">Open activity feed</Link>
-          <Link href="/listings">Open listing feed</Link>
-          <Link href="/watchlist">Open watchlist</Link>
-          <Link href="/system">Open system monitor</Link>
+          <Link href="/map">Map</Link>
+          <Link href="/shortlist">Shortlist</Link>
+          <Link href="/compare">Compare</Link>
+          <Link href="/activity">Activity</Link>
+          <Link href="/listings">Listings</Link>
+          <Link href="/watchlist">Watchlist</Link>
+          <Link href="/system">System</Link>
         </div>
-        <DecisionWorkflowNav current="dashboard" />
       </section>
 
       <section className="grid">

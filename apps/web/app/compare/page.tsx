@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { DecisionWorkflowNav } from "../components/decision-workflow-nav";
 import { MoneyValue } from "../components/money-value";
 
 type CompareDevelopmentItem = {
@@ -345,12 +344,11 @@ export default async function ComparePage({
         </p>
         <div className="hero-actions">
           <Link href="/">Back to dashboard</Link>
-          <Link href="/map">Open map</Link>
-          <Link href="/shortlist">Open shortlist</Link>
-          <Link href="/listings">Open listing feed</Link>
-          <Link href="/watchlist">Open watchlist</Link>
+          <Link href="/map">Map</Link>
+          <Link href="/shortlist">Shortlist</Link>
+          <Link href="/listings">Listings</Link>
+          <Link href="/watchlist">Watchlist</Link>
         </div>
-        <DecisionWorkflowNav current="compare" />
       </section>
 
       <section className="compare-layout">

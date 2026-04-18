@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { CompareToggleButton } from "../components/compare-toggle-button";
-import { DecisionWorkflowNav } from "../components/decision-workflow-nav";
 import { MoneyValue } from "../components/money-value";
 import { formatListingSegment, SEGMENT_OPTIONS } from "../lib/segment";
 
@@ -260,11 +259,10 @@ export default function ShortlistPage() {
         </p>
         <div className="hero-actions">
           <Link href="/">Back to dashboard</Link>
-          <Link href="/map">Open map</Link>
-          <Link href="/watchlist">Open watchlist</Link>
-          <Link href="/compare">Open compare</Link>
+          <Link href="/map">Map</Link>
+          <Link href="/watchlist">Watchlist</Link>
+          <Link href="/compare">Compare</Link>
         </div>
-        <DecisionWorkflowNav current="shortlist" />
       </section>
 
       <section className="activity-layout">

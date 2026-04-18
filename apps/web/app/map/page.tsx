@@ -6,7 +6,6 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CompareToggleButton } from "../components/compare-toggle-button";
-import { DecisionWorkflowNav } from "../components/decision-workflow-nav";
 import { MoneyValue } from "../components/money-value";
 import { formatListingSegment, SEGMENT_OPTIONS } from "../lib/segment";
 
@@ -368,7 +367,7 @@ function MapPageContent() {
             if (current && filteredByWatchlist.some((item) => item.id === current)) {
               return current;
             }
-            return filteredByWatchlist[0]?.id ?? null;
+            return null;
           });
           setError(null);
         }
@@ -409,7 +408,7 @@ function MapPageContent() {
     ).sort();
   }, [developments]);
 
-  const selected = developments.find((item) => item.id === selectedId) ?? developments[0] ?? null;
+  const selected = developments.find((item) => item.id === selectedId) ?? null;
   const watchlistCount = developments.filter((item) => Boolean(watchlistByDevelopment[item.id])).length;
   const newCount = developments.filter((item) => item.listing_segment === "new").length;
   const firstHandCount = developments.filter((item) => item.listing_segment === "first_hand_remaining").length;
@@ -525,11 +524,11 @@ function MapPageContent() {
         </p>
         <div className="hero-actions">
           <Link href="/">Back to dashboard</Link>
-          {selected ? <Link href={`/developments/${selected.id}`}>Open selected detail</Link> : null}
-          <Link href="/shortlist">Open shortlist</Link>
-          <Link href="/activity">Open activity</Link>
-          <Link href="/watchlist">Open watchlist</Link>
-          <Link href="/system">Open system</Link>
+          {selected ? <Link href={`/developments/${selected.id}`}>Selected detail</Link> : null}
+          <Link href="/shortlist">Shortlist</Link>
+          <Link href="/activity">Activity</Link>
+          <Link href="/watchlist">Watchlist</Link>
+          <Link href="/system">System</Link>
           <button type="button" className="action-button action-button-secondary" onClick={applySuggestedBuyerFocus}>
             Apply buyer focus
           </button>
@@ -537,7 +536,6 @@ function MapPageContent() {
             Clear filters
           </button>
         </div>
-        <DecisionWorkflowNav current="map" />
         {presetInfo ? <p className="muted">{presetInfo}</p> : null}
       </section>
 
@@ -804,7 +802,7 @@ function MapPageContent() {
           ) : developments.length > 0 ? (
             <DevelopmentLeafletMap
               developments={developments}
-              selectedId={selected?.id ?? null}
+              selectedId={selectedId}
               watchlistByDevelopment={watchlistByDevelopment}
               onSelect={setSelectedId}
             />
