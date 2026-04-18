@@ -95,23 +95,32 @@ conda run -n py311 hhi-worker backfill-development-geography
 
 ### Buyer-Focus Rollout
 
-如果目标是优先覆盖更适合你的盘，建议先按下面的口径扩量：
+如果目标是优先覆盖更适合你的盘，建议把优先级拆成两层：
 
-- 价值带：`HK$8M-HK$18M`
-- 房型优先：`2房 > 3房 > 1房 > 开放式`
-- 户型面积：`400-750 sqft`（约 `37-70 sqm`）
-- 盘型优先：
-  - `new`
-  - `first_hand_remaining`
-  - `second_hand <= 10 years`
-  - `second_hand <= 15 years`
+1. `development coverage`
+   - 先决定哪些楼盘值得进入候选池
+   - 这里主要看：
+     - `new`
+     - `first_hand_remaining`
+     - `second_hand <= 10 years`
+     - `second_hand <= 15 years`
+     - 核心区域
+     - 是否已有商业源覆盖 / watchlist 信号
+2. `listing expansion`
+   - 再决定哪些盘值得继续补 commercial listing / detail
+   - 这里才更重视：
+     - 价值带：`HK$8M-HK$18M`
+     - 房型优先：`2房 > 3房 > 1房 > 开放式`
+     - 户型面积：`400-750 sqft`（约 `37-70 sqm`）
 
 建议的 monitor 扩量顺序：
 
 1. 先增加官方 `SRPE` development 覆盖，用来补新盘 / 一手余货底座
 2. 再增加围绕重点区域和重点屋苑的 `Centanet` monitored searches
-3. 再用 `Ricacorp` 补第二商业源视角，不急着全量开 detail
-4. 每次只增加少量 monitor，先看 compare / shortlist / map 是否开始出现噪音
+3. 只给已经出现 buyer-focus listing 信号的 monitor 开较高优先级和 detail
+4. 再用 `Ricacorp` 补第二商业源视角，不急着全量开 detail
+5. 对 `>15 years` 的 second-hand development 默认降级，不作为第一波自动扩量主力
+6. 每次只增加少量 monitor，先看 compare / shortlist / map 是否开始出现噪音
 
 ## Config-Driven Monitor Expansion
 
@@ -164,6 +173,13 @@ conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source ce
 
 ```bash
 conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source centanet --limit 20 --validate --create-monitors --activate-created
+```
+
+如果已经有一批较早创建的 auto-discovered monitor，想按最新的两层优先级重算其策略：
+
+```bash
+conda run -n py311 hhi-worker rebalance-commercial-monitors --source centanet
+conda run -n py311 hhi-worker rebalance-commercial-monitors --source ricacorp
 ```
 
 Ricacorp 使用同一套命令：

@@ -1,7 +1,15 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hk_home_intel_domain.commercial_discovery import discover_commercial_monitor_candidates
+from hk_home_intel_domain.commercial_discovery import (
+    DEFAULT_BEDROOM_ORDER,
+    DEFAULT_MAX_BUDGET_HKD,
+    DEFAULT_MAX_SALEABLE_AREA_SQFT,
+    DEFAULT_MIN_BUDGET_HKD,
+    DEFAULT_MIN_SALEABLE_AREA_SQFT,
+    discover_commercial_monitor_candidates,
+    rebalance_auto_discovered_monitors,
+)
 from hk_home_intel_domain.enums import JobRunStatus
 from hk_home_intel_domain.models import CommercialSearchMonitor, Development, RefreshJobRun
 from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
@@ -540,7 +548,8 @@ def test_discover_centanet_monitor_candidates_can_validate_and_create(tmp_path: 
         assert monitor.source == "centanet"
         assert monitor.is_active is False
         assert monitor.criteria_json["default_limit"] == 20
-        assert monitor.criteria_json["detail_policy"] == "priority_only"
+        assert monitor.criteria_json["detail_policy"] == "never"
+        assert monitor.with_details is False
 
 
 def test_discover_centanet_monitor_candidates_validates_via_page_text(tmp_path: Path, monkeypatch) -> None:
@@ -643,6 +652,126 @@ def test_discover_centanet_monitor_candidates_validates_via_canonical_and_detail
         assert summary.generated == 1
         assert summary.validated == 1
         assert summary.candidates[0].validated is True
+
+
+def test_discover_centanet_monitor_candidates_create_search_only_monitor_without_listing_signal(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-centanet-search-only.db'}")
+    Base.metadata.create_all(engine)
+    html = """
+    <html>
+      <head>
+        <title>買樓｜最新樓盤 - 中原地產</title>
+        <link rel="canonical" href="/findproperty/list/buy/THE%20RICHMOND">
+      </head>
+      <body>
+        <div>網上搵樓</div>
+        <div>出售樓盤 共 8 個</div>
+        <a href="https://hk.centanet.com/findproperty/detail/THE-RICHMOND_CZH123">Open detail</a>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.CentanetAdapter.fetch_search_results_html",
+        lambda self, url: html,
+    )
+
+    with Session(engine) as session:
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="srpe-004",
+                source_url="https://www.srpe.gov.hk/",
+                name_en="THE RICHMOND",
+                aliases_json=["THE RICHMOND"],
+                district="Mid-Levels West",
+                region="Hong Kong Island",
+                listing_segment="first_hand_remaining",
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="centanet",
+            limit=3,
+            validate=True,
+            create_monitors=True,
+            activate_created=False,
+        )
+
+        assert summary.generated == 1
+        assert summary.validated == 1
+        monitor = session.scalar(select(CommercialSearchMonitor).limit(1))
+        assert monitor is not None
+        assert monitor.with_details is False
+        assert monitor.criteria_json["detail_policy"] == "never"
+        assert monitor.criteria_json["priority_level"] == 58
+
+
+def test_rebalance_auto_discovered_monitors_updates_existing_centanet_monitor_without_listing_signal(
+    tmp_path: Path,
+) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-monitor-rebalance.db'}")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        development = Development(
+            source="srpe",
+            source_external_id="srpe-005",
+            source_url="https://www.srpe.gov.hk/",
+            name_en="THE RICHMOND",
+            aliases_json=["THE RICHMOND"],
+            district="Mid-Levels West",
+            region="Hong Kong Island",
+            listing_segment="first_hand_remaining",
+            source_confidence="high",
+        )
+        session.add(development)
+        session.flush()
+        session.add(
+            CommercialSearchMonitor(
+                source="centanet",
+                name="THE RICHMOND auto-discovered search",
+                search_url="https://hk.centanet.com/findproperty/list/buy/THE%20RICHMOND",
+                scope_type="development_auto",
+                development_name_hint="THE RICHMOND",
+                district="Mid-Levels West",
+                region="Hong Kong Island",
+                note="Auto-discovered from development pool.",
+                is_active=False,
+                with_details=True,
+                detect_withdrawn=False,
+                tags_json=["auto-discovered", "buyer-focus"],
+                criteria_json={
+                    "listing_segments": ["first_hand_remaining"],
+                    "min_budget_hkd": DEFAULT_MIN_BUDGET_HKD,
+                    "max_budget_hkd": DEFAULT_MAX_BUDGET_HKD,
+                    "bedroom_values": list(DEFAULT_BEDROOM_ORDER),
+                    "min_saleable_area_sqft": DEFAULT_MIN_SALEABLE_AREA_SQFT,
+                    "max_saleable_area_sqft": DEFAULT_MAX_SALEABLE_AREA_SQFT,
+                    "default_limit": 20,
+                    "detail_limit": 8,
+                    "priority_level": 70,
+                    "detail_policy": "priority_only",
+                },
+            )
+        )
+        session.commit()
+
+        summary = rebalance_auto_discovered_monitors(session, source="centanet")
+
+        assert summary.scanned == 1
+        assert summary.updated == 1
+        monitor = session.scalar(select(CommercialSearchMonitor).limit(1))
+        assert monitor is not None
+        assert monitor.with_details is False
+        assert monitor.criteria_json["detail_policy"] == "never"
+        assert monitor.criteria_json["priority_level"] == 58
 
 
 def test_discover_ricacorp_monitor_candidates_can_validate(tmp_path: Path, monkeypatch) -> None:

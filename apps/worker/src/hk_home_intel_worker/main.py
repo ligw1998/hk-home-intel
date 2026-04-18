@@ -21,6 +21,7 @@ from hk_home_intel_domain.maintenance import cleanup_runtime_artifacts
 from hk_home_intel_domain.maintenance import compute_preflight_summary
 from hk_home_intel_domain.commercial_discovery import (
     discover_commercial_monitor_candidates,
+    rebalance_auto_discovered_monitors,
     serialize_commercial_discovery_summary,
 )
 from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
@@ -116,6 +117,9 @@ def main() -> None:
             args.include_existing,
             args.development_id,
         )
+        return
+    if args.command == "rebalance-commercial-monitors":
+        run_rebalance_commercial_monitors(args.source)
         return
     if args.command == "preflight-check":
         run_preflight_check()
@@ -245,6 +249,9 @@ def build_parser() -> argparse.ArgumentParser:
     discovery_parser.add_argument("--activate-created", dest="activate_created", action="store_true")
     discovery_parser.add_argument("--include-existing", dest="include_existing", action="store_true")
     discovery_parser.add_argument("--development-id", dest="development_id", default=None)
+
+    rebalance_parser = subparsers.add_parser("rebalance-commercial-monitors")
+    rebalance_parser.add_argument("--source", dest="source", default=None)
 
     subparsers.add_parser("preflight-check")
 
@@ -682,6 +689,27 @@ def run_discover_commercial_monitor_candidates(
         )
 
     print(json.dumps(serialize_commercial_discovery_summary(summary), indent=2, ensure_ascii=False))
+
+
+def run_rebalance_commercial_monitors(source: str | None) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = rebalance_auto_discovered_monitors(session, source=source)
+    print(
+        json.dumps(
+            {
+                "source": summary.source,
+                "scanned": summary.scanned,
+                "updated": summary.updated,
+                "unchanged": summary.unchanged,
+                "unmatched": summary.unmatched,
+                "monitors": summary.monitors,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
 
 
 def run_preflight_check() -> None:

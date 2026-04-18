@@ -58,6 +58,16 @@ class CommercialDiscoverySummary:
 
 
 @dataclass
+class CommercialMonitorRebalanceSummary:
+    source: str | None
+    scanned: int
+    updated: int
+    unchanged: int
+    unmatched: int
+    monitors: list[dict[str, Any]]
+
+
+@dataclass
 class _DevelopmentContext:
     development: Development
     active_listing_sources: set[str]
@@ -67,6 +77,13 @@ class _DevelopmentContext:
     active_listing_bedrooms: set[int]
     active_listing_saleable_areas: list[float]
     has_watchlist: bool
+
+
+@dataclass
+class _ListingSignalSummary:
+    score: int
+    reasons: list[str]
+    has_buyer_focus_signal: bool
 
 
 def _normalize_name(value: str | None) -> str:
@@ -111,6 +128,54 @@ def _development_identity_keys(item: Development) -> set[str]:
     return {_normalize_name(value) for value in _development_names(item) if _normalize_name(value)}
 
 
+def _listing_signal_summary(context: _DevelopmentContext) -> _ListingSignalSummary:
+    score = 0
+    reasons: list[str] = []
+    has_focus_signal = False
+
+    if context.active_listing_min_price_hkd is not None and context.active_listing_max_price_hkd is not None:
+        if context.active_listing_max_price_hkd >= DEFAULT_MIN_BUDGET_HKD and context.active_listing_min_price_hkd <= DEFAULT_MAX_BUDGET_HKD:
+            score += 16
+            reasons.append("Observed listing price band overlaps the target budget.")
+            has_focus_signal = True
+        elif context.active_listing_min_price_hkd < DEFAULT_MIN_BUDGET_HKD:
+            score += 4
+    elif context.active_listing_count == 0:
+        score += 4
+        reasons.append("No active listing signal yet, so this stays in development coverage mode.")
+
+    preferred_bedroom_score = {2: 14, 3: 11, 1: 8, 0: 4}
+    best_bedroom_score = 0
+    best_bedroom_reason = None
+    for bedroom in context.active_listing_bedrooms:
+        candidate_score = preferred_bedroom_score.get(bedroom, 0)
+        if candidate_score > best_bedroom_score:
+            best_bedroom_score = candidate_score
+            label = "studio" if bedroom == 0 else f"{bedroom}-bedroom"
+            best_bedroom_reason = f"Observed active {label} listing signal."
+    if best_bedroom_score > 0:
+        score += best_bedroom_score
+        has_focus_signal = True
+        if best_bedroom_reason:
+            reasons.append(best_bedroom_reason)
+    elif context.active_listing_count > 0:
+        reasons.append("Bedroom signal is still incomplete.")
+
+    if context.active_listing_saleable_areas:
+        area_overlap = any(
+            DEFAULT_MIN_SALEABLE_AREA_SQFT <= value <= DEFAULT_MAX_SALEABLE_AREA_SQFT
+            for value in context.active_listing_saleable_areas
+        )
+        if area_overlap:
+            score += 10
+            has_focus_signal = True
+            reasons.append("Observed saleable area overlaps the 400-750 sqft target window.")
+    elif context.active_listing_count == 0:
+        score += 2
+
+    return _ListingSignalSummary(score=score, reasons=reasons, has_buyer_focus_signal=has_focus_signal)
+
+
 def _rank_development(context: _DevelopmentContext) -> tuple[int, list[str]]:
     item = context.development
     score = 0
@@ -138,47 +203,10 @@ def _rank_development(context: _DevelopmentContext) -> tuple[int, list[str]]:
             score += 16
             reasons.append("Second-hand stock still within the <=15y fallback window.")
         else:
-            score += 4
+            score += 2
+            reasons.append("Second-hand stock is older than the preferred <=15y window.")
     else:
         score += 10
-
-    if context.active_listing_min_price_hkd is not None and context.active_listing_max_price_hkd is not None:
-        if context.active_listing_max_price_hkd >= DEFAULT_MIN_BUDGET_HKD and context.active_listing_min_price_hkd <= DEFAULT_MAX_BUDGET_HKD:
-            score += 22
-            reasons.append("Observed listing price band overlaps the target budget.")
-        elif context.active_listing_min_price_hkd < DEFAULT_MIN_BUDGET_HKD:
-            score += 6
-    else:
-        score += 6
-
-    preferred_bedroom_score = {2: 18, 3: 14, 1: 10, 0: 4}
-    best_bedroom_score = 0
-    best_bedroom_reason = None
-    for bedroom in context.active_listing_bedrooms:
-        candidate_score = preferred_bedroom_score.get(bedroom, 0)
-        if candidate_score > best_bedroom_score:
-            best_bedroom_score = candidate_score
-            label = "studio" if bedroom == 0 else f"{bedroom}-bedroom"
-            best_bedroom_reason = f"Observed active {label} listing signal."
-    if best_bedroom_score > 0:
-        score += best_bedroom_score
-        if best_bedroom_reason:
-            reasons.append(best_bedroom_reason)
-    elif context.active_listing_count == 0:
-        score += 4
-    else:
-        reasons.append("Bedroom signal is still incomplete.")
-
-    if context.active_listing_saleable_areas:
-        area_overlap = any(
-            DEFAULT_MIN_SALEABLE_AREA_SQFT <= value <= DEFAULT_MAX_SALEABLE_AREA_SQFT
-            for value in context.active_listing_saleable_areas
-        )
-        if area_overlap:
-            score += 12
-            reasons.append("Observed saleable area overlaps the 400-750 sqft target window.")
-    elif context.active_listing_count == 0:
-        score += 3
 
     if item.region in {"Hong Kong Island", "Kowloon"}:
         score += 6
@@ -188,6 +216,14 @@ def _rank_development(context: _DevelopmentContext) -> tuple[int, list[str]]:
 
     if item.lat is not None and item.lng is not None:
         score += 2
+
+    if context.active_listing_sources:
+        score += 6
+        reasons.append("Already has commercial listing coverage to expand from.")
+
+    signal_summary = _listing_signal_summary(context)
+    score += signal_summary.score
+    reasons.extend(signal_summary.reasons)
 
     return score, reasons
 
@@ -309,25 +345,50 @@ def _validate_ricacorp_candidate(item: Development, *, name_hint: str, url: str)
     html_text = adapter.fetch_search_results_html(url)
     expected_keys = _development_identity_keys(item)
     expected_keys.add(_normalize_name(name_hint))
-    body_key = _normalize_name(html_text)
     page_markers = ("物業編號" in html_text) or ("market-price-block" in html_text) or ("rc-property-listing-item-desktop" in html_text)
-    body_match = any(key and key in body_key for key in expected_keys)
-    if page_markers and body_match:
+    try:
+        bundles = adapter.search_results_listing_bundle(url=url, html_text=html_text, limit=5)
+    except Exception:
+        bundles = []
+    parsed_keys: set[str] = set()
+    for bundle in bundles:
+        payload = bundle["development"].payload
+        parsed_keys.update(
+            {
+                _normalize_name(payload.get("name_zh")),
+                _normalize_name(payload.get("name_en")),
+                *(_normalize_name(value) for value in (payload.get("name_translations") or {}).values()),
+            }
+        )
+    if page_markers and (parsed_keys & expected_keys):
         return True, "Matched listing development names on Ricacorp results page."
     return False, "Fetched Ricacorp page but did not find a convincing development-name match."
 
 
-def _monitor_defaults(source: str) -> tuple[bool, dict[str, Any]]:
+def _monitor_defaults(source: str, *, context: _DevelopmentContext) -> tuple[bool, dict[str, Any]]:
+    signal_summary = _listing_signal_summary(context)
     if source == "centanet":
-        return True, {
+        if signal_summary.has_buyer_focus_signal:
+            return True, {
+                "default_limit": 20,
+                "detail_limit": 8,
+                "priority_level": 70,
+                "detail_policy": "priority_only",
+            }
+        return False, {
             "default_limit": 20,
-            "detail_limit": 8,
-            "priority_level": 70,
-            "detail_policy": "priority_only",
+            "priority_level": 58,
+            "detail_policy": "never",
+        }
+    if signal_summary.has_buyer_focus_signal:
+        return False, {
+            "default_limit": 30,
+            "priority_level": 58,
+            "detail_policy": "never",
         }
     return False, {
-        "default_limit": 30,
-        "priority_level": 55,
+        "default_limit": 24,
+        "priority_level": 46,
         "detail_policy": "never",
     }
 
@@ -351,7 +412,7 @@ def _create_monitor_from_candidate(
     if existing is not None:
         return existing.id
 
-    with_details, criteria_defaults = _monitor_defaults(source)
+    with_details, criteria_defaults = _monitor_defaults(source, context=context)
     criteria = {
         "listing_segments": [context.development.listing_segment.value],
         "min_budget_hkd": DEFAULT_MIN_BUDGET_HKD,
@@ -383,6 +444,139 @@ def _create_monitor_from_candidate(
     session.add(item)
     session.flush()
     return item.id
+
+
+def _monitor_identity_key(monitor: CommercialSearchMonitor) -> str:
+    if monitor.development_name_hint:
+        return _normalize_name(monitor.development_name_hint)
+    slug = unquote(monitor.search_url.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1])
+    slug = slug.split("_", 1)[0].replace("-", " ").strip()
+    return _normalize_name(slug)
+
+
+def _choose_context_for_monitor(
+    contexts: list[_DevelopmentContext],
+    *,
+    identity_key: str,
+    district: str | None,
+    region: str | None,
+) -> _DevelopmentContext | None:
+    candidates = [
+        context
+        for context in contexts
+        if identity_key and identity_key in _development_identity_keys(context.development)
+    ]
+    if not candidates:
+        return None
+
+    exact = [
+        context
+        for context in candidates
+        if (not district or context.development.district == district)
+        and (not region or context.development.region == region)
+    ]
+    if exact:
+        candidates = exact
+
+    ranked = sorted(candidates, key=lambda context: _rank_development(context)[0], reverse=True)
+    return ranked[0] if ranked else None
+
+
+def _rebalance_monitor_defaults(monitor: CommercialSearchMonitor, *, context: _DevelopmentContext) -> bool:
+    with_details, criteria_defaults = _monitor_defaults(monitor.source, context=context)
+    next_criteria = dict(monitor.criteria_json or {})
+    next_criteria.update(
+        {
+            "listing_segments": [context.development.listing_segment.value],
+            "min_budget_hkd": DEFAULT_MIN_BUDGET_HKD,
+            "max_budget_hkd": DEFAULT_MAX_BUDGET_HKD,
+            "bedroom_values": list(DEFAULT_BEDROOM_ORDER),
+            "min_saleable_area_sqft": DEFAULT_MIN_SALEABLE_AREA_SQFT,
+            "max_saleable_area_sqft": DEFAULT_MAX_SALEABLE_AREA_SQFT,
+            **criteria_defaults,
+        }
+    )
+
+    if context.development.completion_year is not None:
+        age_years = max(0, datetime.now().year - context.development.completion_year)
+        next_criteria["max_age_years"] = 10 if age_years <= 10 else 15
+    else:
+        next_criteria.pop("max_age_years", None)
+
+    changed = False
+    if monitor.with_details != with_details:
+        monitor.with_details = with_details
+        changed = True
+    if monitor.criteria_json != next_criteria:
+        monitor.criteria_json = next_criteria
+        changed = True
+    return changed
+
+
+def rebalance_auto_discovered_monitors(
+    session: Session,
+    *,
+    source: str | None = None,
+) -> CommercialMonitorRebalanceSummary:
+    contexts = _collect_development_contexts(session)
+    query = select(CommercialSearchMonitor).where(CommercialSearchMonitor.scope_type == "development_auto")
+    if source:
+        query = query.where(CommercialSearchMonitor.source == source)
+    monitors = session.scalars(query.order_by(CommercialSearchMonitor.updated_at.desc())).all()
+
+    updated = 0
+    unchanged = 0
+    unmatched = 0
+    details: list[dict[str, Any]] = []
+
+    for monitor in monitors:
+        identity_key = _monitor_identity_key(monitor)
+        context = _choose_context_for_monitor(
+            contexts,
+            identity_key=identity_key,
+            district=monitor.district,
+            region=monitor.region,
+        )
+        if context is None:
+            unmatched += 1
+            details.append(
+                {
+                    "monitor_id": monitor.id,
+                    "name": monitor.name,
+                    "search_url": monitor.search_url,
+                    "status": "unmatched",
+                }
+            )
+            continue
+
+        changed = _rebalance_monitor_defaults(monitor, context=context)
+        if changed:
+            updated += 1
+            status = "updated"
+        else:
+            unchanged += 1
+            status = "unchanged"
+        details.append(
+            {
+                "monitor_id": monitor.id,
+                "name": monitor.name,
+                "search_url": monitor.search_url,
+                "status": status,
+                "with_details": monitor.with_details,
+                "detail_policy": (monitor.criteria_json or {}).get("detail_policy"),
+                "priority_level": (monitor.criteria_json or {}).get("priority_level"),
+            }
+        )
+
+    session.commit()
+    return CommercialMonitorRebalanceSummary(
+        source=source,
+        scanned=len(monitors),
+        updated=updated,
+        unchanged=unchanged,
+        unmatched=unmatched,
+        monitors=details,
+    )
 
 
 def discover_commercial_monitor_candidates(
