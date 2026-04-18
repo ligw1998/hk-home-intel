@@ -128,6 +128,48 @@ def _development_identity_keys(item: Development) -> set[str]:
     return {_normalize_name(value) for value in _development_names(item) if _normalize_name(value)}
 
 
+def _ricacorp_name_hints(item: Development) -> list[str]:
+    hints = _development_names(item)
+    expanded: list[str] = list(hints)
+
+    for value in hints:
+        raw_value = value.strip()
+        expanded.extend(segment.strip() for segment in re.split(r"\s{2,}", raw_value) if segment.strip())
+
+        normalized_spaces = re.sub(r"\s+", " ", raw_value).strip()
+        if normalized_spaces and normalized_spaces != value:
+            expanded.append(normalized_spaces)
+
+        compact_parts = [segment.strip() for segment in re.split(r"\s+-\s+|\s{2,}", raw_value) if segment.strip()]
+        expanded.extend(compact_parts)
+
+        chinese_parts = [segment.strip() for segment in re.split(r"[‧・/]", normalized_spaces) if segment.strip()]
+        expanded.extend(chinese_parts)
+
+        phase_trimmed = re.sub(
+            r"\s+(?:phase\s+)?phase\s+[0-9a-zA-Z]+$",
+            "",
+            normalized_spaces,
+            flags=re.IGNORECASE,
+        ).strip()
+        if phase_trimmed and phase_trimmed != normalized_spaces:
+            expanded.append(phase_trimmed)
+
+        simple_phase_trimmed = re.sub(r"\s+[0-9]+[a-zA-Z]?$", "", normalized_spaces).strip()
+        if simple_phase_trimmed and simple_phase_trimmed != normalized_spaces:
+            expanded.append(simple_phase_trimmed)
+
+    cleaned = [value for value in _dedupe_preserve(expanded) if len(_normalize_name(value)) >= 2]
+    return cleaned
+
+
+def _ricacorp_identity_keys(item: Development, *, name_hint: str | None = None) -> set[str]:
+    values = _ricacorp_name_hints(item)
+    if name_hint:
+        values.append(name_hint)
+    return {_normalize_name(value) for value in values if _normalize_name(value)}
+
+
 def _listing_signal_summary(context: _DevelopmentContext) -> _ListingSignalSummary:
     score = 0
     reasons: list[str] = []
@@ -306,10 +348,40 @@ def _extract_centanet_link_keys(html_text: str) -> set[str]:
 
 def _ricacorp_candidate_urls(item: Development) -> list[tuple[str, str]]:
     candidates: list[tuple[str, str]] = []
-    for name in _development_names(item):
-        url = f"https://www.ricacorp.com/zh-hk/property/list/buy/{quote(name, safe='')}-bigest-hk"
+    for name in _ricacorp_name_hints(item):
+        url = f"https://www.ricacorp.com/zh-hk/property/estate/{quote(name, safe='')}"
         candidates.append((name, url))
     return candidates
+
+
+def _resolve_ricacorp_candidate_pairs(
+    adapter: RicacorpAdapter,
+    item: Development,
+    *,
+    estate_entries: list[dict[str, str | None]],
+) -> list[tuple[str, str]]:
+    expected_keys = _ricacorp_identity_keys(item)
+    results: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
+
+    for entry in estate_entries:
+        entry_values = [
+            entry.get("display_name"),
+            entry.get("alt_name"),
+        ]
+        entry_keys = {_normalize_name(value) for value in entry_values if _normalize_name(value)}
+        if not entry_keys or not (entry_keys & expected_keys):
+            continue
+        estate_url = str(entry.get("estate_url") or "").strip()
+        if not estate_url or estate_url in seen_urls:
+            continue
+        seen_urls.add(estate_url)
+        name_hint = next((value for value in entry_values if value), item.name_zh or item.name_en or estate_url)
+        results.append((name_hint, estate_url))
+
+    if results:
+        return results
+    return _ricacorp_candidate_urls(item)
 
 
 def _validate_centanet_candidate(item: Development, *, name_hint: str, url: str) -> tuple[bool, str]:
@@ -340,29 +412,20 @@ def _validate_centanet_candidate(item: Development, *, name_hint: str, url: str)
     return False, "Fetched page but did not find a convincing development-name match."
 
 
-def _validate_ricacorp_candidate(item: Development, *, name_hint: str, url: str) -> tuple[bool, str]:
+def _validate_ricacorp_candidate(item: Development, *, name_hint: str, url: str) -> tuple[bool, str, str | None]:
     adapter = RicacorpAdapter()
     html_text = adapter.fetch_search_results_html(url)
-    expected_keys = _development_identity_keys(item)
-    expected_keys.add(_normalize_name(name_hint))
-    page_markers = ("物業編號" in html_text) or ("market-price-block" in html_text) or ("rc-property-listing-item-desktop" in html_text)
-    try:
-        bundles = adapter.search_results_listing_bundle(url=url, html_text=html_text, limit=5)
-    except Exception:
-        bundles = []
-    parsed_keys: set[str] = set()
-    for bundle in bundles:
-        payload = bundle["development"].payload
-        parsed_keys.update(
-            {
-                _normalize_name(payload.get("name_zh")),
-                _normalize_name(payload.get("name_en")),
-                *(_normalize_name(value) for value in (payload.get("name_translations") or {}).values()),
-            }
-        )
-    if page_markers and (parsed_keys & expected_keys):
-        return True, "Matched listing development names on Ricacorp results page."
-    return False, "Fetched Ricacorp page but did not find a convincing development-name match."
+    expected_keys = _ricacorp_identity_keys(item, name_hint=name_hint)
+    page_name = adapter.extract_estate_page_name(html_text)
+    page_keys = {_normalize_name(page_name)} if _normalize_name(page_name) else set()
+    buy_list_url = adapter.extract_estate_buy_list_url(html_text, estate_url=url)
+    page_markers = ("屋苑專頁" in html_text) or ("rc-estate-post-listing" in html_text) or ("post-total-count" in html_text)
+
+    if page_markers and (page_keys & expected_keys) and buy_list_url:
+        return True, f"Matched Ricacorp estate page: {page_name or name_hint}", buy_list_url
+    if page_markers and not buy_list_url:
+        return False, "Fetched Ricacorp estate page but could not resolve the linked sale listing page.", None
+    return False, "Fetched Ricacorp page but did not find a convincing development-name match.", None
 
 
 def _monitor_defaults(source: str, *, context: _DevelopmentContext) -> tuple[bool, dict[str, Any]]:
@@ -592,6 +655,8 @@ def discover_commercial_monitor_candidates(
 ) -> CommercialDiscoverySummary:
     if source not in {"centanet", "ricacorp"}:
         raise ValueError(f"unsupported commercial discovery source: {source}")
+    if source == "ricacorp" and create_monitors and not validate:
+        validate = True
 
     contexts = _collect_development_contexts(session)
     ranked: list[tuple[int, list[str], _DevelopmentContext]] = []
@@ -607,13 +672,16 @@ def discover_commercial_monitor_candidates(
         ranked.append((score, reasons, context))
     ranked.sort(key=lambda value: value[0], reverse=True)
 
+    ricacorp_estate_entries: list[dict[str, str | None]] | None = None
+    if source == "ricacorp":
+        ricacorp_estate_entries = RicacorpAdapter().estate_index_entries()
+
     candidates: list[CommercialDiscoveryCandidate] = []
     created_count = 0
     validated_count = 0
 
     for score, reasons, context in ranked:
         item = context.development
-        generator = _centanet_candidate_urls if source == "centanet" else _ricacorp_candidate_urls
         existing_urls = {
             value.search_url: value.id
             for value in session.scalars(
@@ -621,7 +689,14 @@ def discover_commercial_monitor_candidates(
             ).all()
         }
 
-        candidate_pairs = generator(item)
+        if source == "centanet":
+            candidate_pairs = _centanet_candidate_urls(item)
+        else:
+            candidate_pairs = _resolve_ricacorp_candidate_pairs(
+                RicacorpAdapter(),
+                item,
+                estate_entries=ricacorp_estate_entries or [],
+            )
         for name_hint, url in candidate_pairs:
             existing_monitor_id = existing_urls.get(url)
             validated = None
@@ -632,7 +707,10 @@ def discover_commercial_monitor_candidates(
                     if source == "centanet":
                         validated, validation_message = _validate_centanet_candidate(item, name_hint=name_hint, url=url)
                     else:
-                        validated, validation_message = _validate_ricacorp_candidate(item, name_hint=name_hint, url=url)
+                        validated, validation_message, resolved_url = _validate_ricacorp_candidate(item, name_hint=name_hint, url=url)
+                        if validated and resolved_url:
+                            url = resolved_url
+                            existing_monitor_id = existing_urls.get(url)
                     validation_status = "validated" if validated else "no_match"
                 except Exception as exc:
                     validated = False

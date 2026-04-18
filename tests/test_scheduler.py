@@ -7,9 +7,11 @@ from hk_home_intel_domain.commercial_discovery import (
     DEFAULT_MAX_SALEABLE_AREA_SQFT,
     DEFAULT_MIN_BUDGET_HKD,
     DEFAULT_MIN_SALEABLE_AREA_SQFT,
+    _ricacorp_name_hints,
     discover_commercial_monitor_candidates,
     rebalance_auto_discovered_monitors,
 )
+from hk_home_intel_connectors.ricacorp import RicacorpAdapter
 from hk_home_intel_domain.enums import JobRunStatus
 from hk_home_intel_domain.models import CommercialSearchMonitor, Development, RefreshJobRun
 from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
@@ -777,12 +779,38 @@ def test_rebalance_auto_discovered_monitors_updates_existing_centanet_monitor_wi
 def test_discover_ricacorp_monitor_candidates_can_validate(tmp_path: Path, monkeypatch) -> None:
     engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-ricacorp.db'}")
     Base.metadata.create_all(engine)
-    fixture_path = Path("packages/connectors/src/hk_home_intel_connectors/fixtures/ricacorp_search_results_sample.html")
-    fixture_html = fixture_path.read_text(encoding="utf-8")
+    estate_list_html = """
+    <html>
+      <body>
+        <a href="/zh-hk/property/estate/%E9%80%B8%E7%93%8F-estate-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk">
+          <img alt="逸瓏" />
+          <span class="location-text">逸瓏</span>
+          <span class="zone-text">九龍塘</span>
+        </a>
+      </body>
+    </html>
+    """
+    estate_page_html = """
+    <html>
+      <head>
+        <title>逸瓏 - 屋苑專頁 | 真盤源 - 利嘉閣地產</title>
+      </head>
+      <body>
+        <rc-estate-post-listing>
+          <span class="location-name">逸瓏</span>
+        </rc-estate-post-listing>
+        <a class="post-total-count" href="list/buy/%E9%80%B8%E7%93%8F-estate-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk">售盤</a>
+      </body>
+    </html>
+    """
 
     monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_estate_list_html",
+        lambda self: estate_list_html,
+    )
+    monkeypatch.setattr(
         "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_search_results_html",
-        lambda self, url: fixture_html,
+        lambda self, url: estate_page_html,
     )
 
     with Session(engine) as session:
@@ -814,4 +842,40 @@ def test_discover_ricacorp_monitor_candidates_can_validate(tmp_path: Path, monke
         assert summary.validated == 1
         assert summary.created_monitors == 0
         assert summary.candidates[0].validated is True
-        assert summary.candidates[0].search_url.endswith("%E9%80%B8%E7%93%8F-bigest-hk")
+        assert summary.candidates[0].search_url.endswith("/property/list/buy/%E9%80%B8%E7%93%8F-estate-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk")
+
+
+def test_ricacorp_name_hints_include_parent_estate_candidates() -> None:
+    item = Development(
+        source="centanet",
+        source_external_id="dummy",
+        source_url="https://example.test",
+        name_zh="港島南岸   3B",
+        name_en="THE SOUTHSIDE - BLUE COAST",
+        aliases_json=["港島南岸   3B"],
+    )
+
+    hints = _ricacorp_name_hints(item)
+
+    assert "港島南岸" in hints
+    assert "THE SOUTHSIDE" in hints
+
+
+def test_ricacorp_extract_estate_buy_list_url_can_fallback_to_server_state() -> None:
+    adapter = RicacorpAdapter()
+    html_text = """
+    <html>
+      <body>
+        <script id="serverApp-state" type="application/json">
+          {&q;alias&q;:&q;又一居-estate-九龍塘-hma-hk&q;,&q;others&q;:[{&q;itemId&q;:&q;post.sales&q;,&q;count&q;:12}]}
+        </script>
+      </body>
+    </html>
+    """
+
+    buy_list_url = adapter.extract_estate_buy_list_url(
+        html_text,
+        estate_url="https://www.ricacorp.com/zh-hk/property/estate/%E5%8F%88%E4%B8%80%E5%B1%85",
+    )
+
+    assert buy_list_url == "https://www.ricacorp.com/zh-hk/property/list/buy/%E5%8F%88%E4%B8%80%E5%B1%85-bigest-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk"

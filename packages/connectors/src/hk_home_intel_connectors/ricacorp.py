@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 from bs4 import BeautifulSoup
 
@@ -16,6 +16,7 @@ from hk_home_intel_domain.i18n import build_translation_map
 class RicacorpAdapter(SourceAdapter):
     source_name = "ricacorp"
     base_url = "https://www.ricacorp.com"
+    estate_list_url = "https://www.ricacorp.com/zh-hk/property/list/estate"
     sample_search_results_html_path = Path(__file__).with_name("fixtures").joinpath("ricacorp_search_results_sample.html")
 
     def discover_developments(self) -> list[RawRecord]:
@@ -26,6 +27,9 @@ class RicacorpAdapter(SourceAdapter):
 
     def fetch_search_results_html(self, url: str) -> str:
         return fetch_text(url)
+
+    def fetch_estate_list_html(self) -> str:
+        return fetch_text(self.estate_list_url)
 
     def search_results_listing_bundle(
         self,
@@ -82,6 +86,131 @@ class RicacorpAdapter(SourceAdapter):
                 }
             )
         return bundles
+
+    def estate_index_entries(
+        self,
+        *,
+        html_text: str | None = None,
+        html_path: str | None = None,
+    ) -> list[dict[str, str | None]]:
+        if html_text is None:
+            if html_path:
+                html_text = Path(html_path).read_text(encoding="utf-8")
+            else:
+                html_text = self.fetch_estate_list_html()
+
+        soup = BeautifulSoup(html_text, "html.parser")
+        entries: list[dict[str, str | None]] = []
+        seen_urls: set[str] = set()
+        for href_node in soup.select("a[href*='/property/estate/']"):
+            href = href_node.get("href")
+            if not href:
+                continue
+            estate_url = urljoin(self.base_url, href)
+            if estate_url in seen_urls:
+                continue
+            seen_urls.add(estate_url)
+            display_name = self._clean_text(
+                (href_node.select_one(".location-text") or href_node.select_one(".display-text") or href_node.select_one(".location-name"))
+                and (href_node.select_one(".location-text") or href_node.select_one(".display-text") or href_node.select_one(".location-name")).get_text(" ", strip=True)
+            )
+            zone_text = self._clean_text(
+                href_node.select_one(".zone-text").get_text(" ", strip=True)
+                if href_node.select_one(".zone-text")
+                else None
+            )
+            alt_name = self._clean_text(
+                href_node.select_one("img").get("alt")
+                if href_node.select_one("img") and href_node.select_one("img").get("alt")
+                else None
+            )
+            entries.append(
+                {
+                    "estate_url": estate_url,
+                    "display_name": display_name,
+                    "alt_name": alt_name,
+                    "zone_text": zone_text,
+                }
+            )
+        return entries
+
+    def extract_estate_page_name(self, html_text: str) -> str | None:
+        soup = BeautifulSoup(html_text, "html.parser")
+        location_name = soup.select_one("rc-estate-post-listing .location-name")
+        if location_name is not None:
+            cleaned = self._clean_text(location_name.get_text(" ", strip=True))
+            if cleaned:
+                return cleaned
+
+        title = soup.title.get_text(" ", strip=True) if soup.title else None
+        title = self._clean_text(title)
+        if title:
+            return title.split(" - ")[0].strip()
+        return None
+
+    def extract_estate_buy_list_url(self, html_text: str, *, estate_url: str) -> str | None:
+        soup = BeautifulSoup(html_text, "html.parser")
+        post_count_link = soup.select_one("a.post-total-count[href*='list/buy/']")
+        if post_count_link is not None:
+            href = post_count_link.get("href")
+            if href:
+                return self._resolve_property_href(href, current_url=estate_url)
+
+        direct_link = soup.select_one("a[href*='/property/list/buy/']")
+        if direct_link is not None:
+            href = direct_link.get("href")
+            if href:
+                return self._resolve_property_href(href, current_url=estate_url)
+
+        state_fallback = self._extract_estate_buy_list_url_from_state(html_text, estate_url=estate_url)
+        if state_fallback:
+            return state_fallback
+
+        return None
+
+    def _extract_estate_buy_list_url_from_state(self, html_text: str, *, estate_url: str) -> str | None:
+        state_match = re.search(
+            r'<script[^>]+id="serverApp-state"[^>]*>(.*?)</script>',
+            html_text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        state_text = state_match.group(1) if state_match else html_text
+        sales_counts = [
+            int(value)
+            for value in re.findall(r"&q;itemId&q;:&q;post\.sales&q;,&q;count&q;:(\d+)", state_text)
+        ]
+        if not any(count > 0 for count in sales_counts):
+            return None
+
+        alias_candidates = re.findall(r"&q;alias&q;:&q;([^&]+?)&q;", state_text)
+        alias_candidates.extend(
+            re.findall(r"&q;aliases&q;:\{[^{}]*?&q;hk&q;:&q;([^&]+?)&q;", state_text, re.DOTALL)
+        )
+        for alias in alias_candidates:
+            cleaned_alias = self._clean_text(alias)
+            if not cleaned_alias:
+                continue
+            buy_alias = cleaned_alias.replace("-estate-", "-bigest-")
+            if "-bigest-" not in buy_alias:
+                continue
+            encoded_alias = quote(buy_alias, safe="-")
+            return self._resolve_property_href(f"list/buy/{encoded_alias}", current_url=estate_url)
+        return None
+
+    def _resolve_property_href(self, href: str, *, current_url: str) -> str:
+        if href.startswith("http://") or href.startswith("https://"):
+            return href
+        if href.startswith("/"):
+            return urljoin(self.base_url, href)
+        if href.startswith("list/"):
+            locale_root_match = re.match(
+                r"^(https://www\.ricacorp\.com/(?:zh-hk|zh-cn|en-hk)/property)/",
+                current_url,
+                re.IGNORECASE,
+            )
+            if locale_root_match:
+                return f"{locale_root_match.group(1)}/{href}"
+        return urljoin(current_url, href)
 
     def normalize_development(self, record: RawRecord) -> dict[str, Any]:
         payload = record.payload
