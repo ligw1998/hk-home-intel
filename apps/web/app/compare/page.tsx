@@ -21,6 +21,7 @@ type CompareDevelopmentItem = {
   active_listing_max_price_hkd: number | null;
   active_listing_bedroom_options: number[];
   active_listing_bedroom_mix: Record<string, number>;
+  active_listing_saleable_area_values: number[];
   active_listing_source_counts: Record<string, number>;
   latest_listing_event_at: string | null;
   current_min_price_hkd: number | null;
@@ -47,10 +48,13 @@ type CompareSuggestionsResponse = {
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
-const DEFAULT_BUDGET_HKD = 16_000_000;
-const DEFAULT_BEDROOM_ORDER = [2, 3, 1];
+const DEFAULT_MIN_BUDGET_HKD = 8_000_000;
+const DEFAULT_BUDGET_HKD = 18_000_000;
+const DEFAULT_BEDROOM_ORDER = [2, 3, 1, 0];
 const DEFAULT_MAX_AGE_YEARS = 10;
 const DEFAULT_EXTENDED_AGE_YEARS = 15;
+const DEFAULT_MIN_SALEABLE_AREA_SQFT = 400;
+const DEFAULT_MAX_SALEABLE_AREA_SQFT = 700;
 
 type DecisionView = {
   band: string;
@@ -139,18 +143,23 @@ function buildDecisionView(item: CompareDevelopmentItem): DecisionView {
   }
 
   if (item.current_min_price_hkd !== null) {
-    const ratio = item.current_min_price_hkd / DEFAULT_BUDGET_HKD;
-    if (ratio <= 0.8) {
-      score += 30;
-      reasons.push("最低在售价明显落在预算内。");
-    } else if (ratio <= 1.0) {
-      score += 26;
-      reasons.push("最低在售价位于预算上限内。");
-    } else if (ratio <= 1.1) {
-      score += 10;
-      cautions.push("最低在售价略高于预算上限，需要更强谈价空间。");
+    if (item.current_min_price_hkd < DEFAULT_MIN_BUDGET_HKD) {
+      score += 6;
+      cautions.push("最低在售价低于当前目标价值带，盘质与目标盘面可能偏弱。");
     } else {
-      cautions.push("最低在售价明显高于当前预算。");
+      const ratio = item.current_min_price_hkd / DEFAULT_BUDGET_HKD;
+      if (ratio <= 0.8) {
+        score += 30;
+        reasons.push("最低在售价明显落在目标预算带内。");
+      } else if (ratio <= 1.0) {
+        score += 26;
+        reasons.push("最低在售价位于预算上限内。");
+      } else if (ratio <= 1.1) {
+        score += 10;
+        cautions.push("最低在售价略高于预算上限，需要更强谈价空间。");
+      } else {
+        cautions.push("最低在售价明显高于当前预算。");
+      }
     }
   } else {
     cautions.push("当前缺少可用叫价，预算匹配度仍不够明确。");
@@ -168,11 +177,25 @@ function buildDecisionView(item: CompareDevelopmentItem): DecisionView {
   } else if (matchedRank === 2) {
     score += 10;
     reasons.push("当前盘面包含你第三优先的 1 房。");
+  } else if (matchedRank === 3) {
+    score += 4;
+    reasons.push("当前盘面至少包含开放式。");
   } else if (item.active_listing_count > 0 && item.active_listing_bedroom_options.length === 0) {
     score += 4;
     cautions.push("当前有盘源，但房型字段覆盖仍不完整。");
   } else {
-    cautions.push("当前盘面未看到你优先的 2房 / 3房 / 1房信号。");
+    cautions.push("当前盘面未看到你优先的 2房 / 3房 / 1房 / 开放式信号。");
+  }
+
+  if (
+    item.active_listing_saleable_area_values.some(
+      (value) => value >= DEFAULT_MIN_SALEABLE_AREA_SQFT && value <= DEFAULT_MAX_SALEABLE_AREA_SQFT,
+    )
+  ) {
+    score += 14;
+    reasons.push(`当前盘面包含 ${DEFAULT_MIN_SALEABLE_AREA_SQFT}-${DEFAULT_MAX_SALEABLE_AREA_SQFT} 尺区间户型。`);
+  } else if (item.active_listing_count > 0) {
+    cautions.push(`当前盘面未见 ${DEFAULT_MIN_SALEABLE_AREA_SQFT}-${DEFAULT_MAX_SALEABLE_AREA_SQFT} 尺信号。`);
   }
 
   if (item.listing_segment === "new" || item.listing_segment === "first_hand_remaining") {

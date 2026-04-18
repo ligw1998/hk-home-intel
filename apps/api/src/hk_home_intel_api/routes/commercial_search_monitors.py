@@ -2,11 +2,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from hk_home_intel_domain.models import CommercialSearchMonitor, RefreshJobRun
+from hk_home_intel_domain.commercial_discovery import (
+    discover_commercial_monitor_candidates as run_commercial_monitor_discovery,
+)
 from hk_home_intel_domain.refresh import (
     launch_commercial_search_monitor_batch,
     launch_commercial_search_monitor_refresh,
@@ -19,8 +22,11 @@ router = APIRouter(prefix="/commercial-search-monitors", tags=["commercial-searc
 
 class MonitorCriteria(BaseModel):
     listing_segments: list[str] = Field(default_factory=list)
+    min_budget_hkd: float | None = None
     max_budget_hkd: float | None = None
     bedroom_values: list[int] = Field(default_factory=list)
+    min_saleable_area_sqft: float | None = None
+    max_saleable_area_sqft: float | None = None
     max_age_years: int | None = None
     default_limit: int | None = Field(default=None, ge=1, le=200)
     detail_limit: int | None = Field(default=None, ge=1, le=100)
@@ -92,6 +98,45 @@ class CommercialSearchMonitorResponse(BaseModel):
     latest_failure_at: str | None
     recent_failure_count: int
     latest_run: MonitorLatestRunResponse | None
+
+
+class CommercialDiscoveryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    source: str = "centanet"
+    limit: int = Field(default=20, ge=1, le=100)
+    validate_candidates: bool = Field(default=False, alias="validate")
+    create_monitors: bool = False
+    activate_created: bool = False
+    include_existing: bool = False
+    development_id: str | None = None
+
+
+class CommercialDiscoveryCandidateResponse(BaseModel):
+    source: str
+    development_id: str
+    development_name: str | None
+    district: str | None
+    region: str | None
+    listing_segment: str
+    search_url: str
+    development_name_hint: str | None
+    match_score: int
+    reasons: list[str]
+    validated: bool | None
+    validation_status: str
+    validation_message: str | None
+    existing_monitor_id: str | None
+    created_monitor_id: str | None
+
+
+class CommercialDiscoveryResponse(BaseModel):
+    source: str
+    processed: int
+    generated: int
+    validated: int
+    created_monitors: int
+    candidates: list[CommercialDiscoveryCandidateResponse]
 
 
 def _monitor_health_status(
@@ -252,6 +297,50 @@ def create_commercial_search_monitor(
     session.commit()
     session.refresh(item)
     return _serialize_monitor(item, session)
+
+
+@router.post("/discovery", response_model=CommercialDiscoveryResponse)
+def discover_commercial_search_monitor_candidates(
+    payload: CommercialDiscoveryRequest,
+    session: Session = Depends(get_db_session),
+) -> CommercialDiscoveryResponse:
+    summary = run_commercial_monitor_discovery(
+        session,
+        source=payload.source,
+        limit=payload.limit,
+        validate=payload.validate_candidates,
+        create_monitors=payload.create_monitors,
+        activate_created=payload.activate_created,
+        include_existing=payload.include_existing,
+        development_id=payload.development_id,
+    )
+    return CommercialDiscoveryResponse(
+        source=summary.source,
+        processed=summary.processed,
+        generated=summary.generated,
+        validated=summary.validated,
+        created_monitors=summary.created_monitors,
+        candidates=[
+            CommercialDiscoveryCandidateResponse(
+                source=item.source,
+                development_id=item.development_id,
+                development_name=item.development_name,
+                district=item.district,
+                region=item.region,
+                listing_segment=item.listing_segment,
+                search_url=item.search_url,
+                development_name_hint=item.development_name_hint,
+                match_score=item.match_score,
+                reasons=item.reasons,
+                validated=item.validated,
+                validation_status=item.validation_status,
+                validation_message=item.validation_message,
+                existing_monitor_id=item.existing_monitor_id,
+                created_monitor_id=item.created_monitor_id,
+            )
+            for item in summary.candidates
+        ],
+    )
 
 
 @router.patch("/{monitor_id}", response_model=CommercialSearchMonitorResponse)

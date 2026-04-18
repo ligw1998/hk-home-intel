@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { CompareToggleButton } from "../../components/compare-toggle-button";
 import { MoneyValue } from "../../components/money-value";
 import { WatchlistButton } from "../../components/watchlist-button";
+import { formatAreaDual } from "../../lib/area";
 import { formatEventType, formatListingStatus } from "../../lib/listing-events";
 import { formatListingSegment } from "../../lib/segment";
 
@@ -523,7 +524,7 @@ export default async function DevelopmentDetailPage({
                   <span>
                     {formatBedroomLabel(item.bedrooms)}
                     {item.bathrooms !== null ? ` / ${item.bathrooms}浴` : ""}
-                    {item.saleable_area_sqft !== null ? ` / ${item.saleable_area_sqft} sqft` : ""}
+                    {item.saleable_area_sqft !== null ? ` / ${formatAreaDual(item.saleable_area_sqft)}` : ""}
                   </span>
                   <span>
                     {formatCompactMoney(item.asking_price_hkd)}

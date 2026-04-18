@@ -1,0 +1,49 @@
+[[monitor]]
+source = "centanet"
+name = "匯璽 monitored search"
+search_url = "https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS"
+scope_type = "development"
+development_name_hint = "匯璽"
+district = "Sham Shui Po"
+region = "Kowloon"
+note = "Buyer-focus starter monitor for a well-covered second-hand development."
+is_active = true
+with_details = true
+detect_withdrawn = false
+tags = ["buyer-focus", "starter"]
+
+[monitor.criteria]
+listing_segments = ["second_hand"]
+min_budget_hkd = 8000000
+max_budget_hkd = 18000000
+bedroom_values = [2, 3, 1, 0]
+min_saleable_area_sqft = 400
+max_saleable_area_sqft = 750
+max_age_years = 10
+default_limit = 20
+detail_limit = 8
+priority_level = 70
+detail_policy = "priority_only"
+
+[[monitor]]
+source = "ricacorp"
+name = "Ricacorp buy monitored search"
+search_url = "https://www.ricacorp.com/zh-hk/property/list/buy"
+scope_type = "source_buy_index"
+note = "Buyer-focus starter monitor for broader second commercial-source coverage."
+is_active = true
+with_details = false
+detect_withdrawn = false
+tags = ["buyer-focus", "starter"]
+
+[monitor.criteria]
+listing_segments = ["new", "first_hand_remaining", "second_hand"]
+min_budget_hkd = 8000000
+max_budget_hkd = 18000000
+bedroom_values = [2, 3, 1, 0]
+min_saleable_area_sqft = 400
+max_saleable_area_sqft = 750
+max_age_years = 15
+default_limit = 30
+priority_level = 55
+detail_policy = "never"

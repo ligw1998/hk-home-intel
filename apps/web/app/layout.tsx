@@ -3,6 +3,7 @@ import "leaflet/dist/leaflet.css";
 import type { Metadata } from "next";
 import React from "react";
 
+import { AppHeader } from "./components/app-header";
 import { CompareTray } from "./components/compare-tray";
 
 export const metadata: Metadata = {
@@ -18,6 +19,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <AppHeader />
         {children}
         <CompareTray />
       </body>

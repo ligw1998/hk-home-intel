@@ -20,6 +20,15 @@ type HealthResponse = {
   };
 };
 
+type SystemOverview = {
+  readiness_status: string;
+  readiness_notes: string[];
+  active_monitor_count: number;
+  attention_monitor_count: number;
+  commercial_listing_count: number;
+  price_event_count: number;
+};
+
 type DevelopmentSummary = {
   id: string;
   source_url: string | null;
@@ -111,6 +120,7 @@ export default function HomePage() {
   const [developments, setDevelopments] = useState<DevelopmentSummary[]>([]);
   const [shortlist, setShortlist] = useState<ShortlistItem[]>([]);
   const [marketMoves, setMarketMoves] = useState<ListingFeedItem[]>([]);
+  const [systemOverview, setSystemOverview] = useState<SystemOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [developmentError, setDevelopmentError] = useState<string | null>(null);
 
@@ -119,13 +129,14 @@ export default function HomePage() {
 
     async function loadPageData() {
       try {
-        const [healthResponse, developmentResponse, shortlistResponse, marketMovesResponse] = await Promise.all([
+        const [healthResponse, developmentResponse, shortlistResponse, marketMovesResponse, overviewResponse] = await Promise.all([
           fetch(`${API_BASE}/api/v1/health`),
           fetch(`${API_BASE}/api/v1/developments?limit=6`),
           fetch(
-            `${API_BASE}/api/v1/shortlist?lang=zh-Hant&max_budget_hkd=16000000&bedroom_values=2,3,1&max_age_years=10&extended_age_years=15&listing_segments=new,first_hand_remaining,second_hand&limit=8`,
+            `${API_BASE}/api/v1/shortlist?lang=zh-Hant&min_budget_hkd=8000000&max_budget_hkd=18000000&bedroom_values=2,3,1,0&min_saleable_area_sqft=400&max_saleable_area_sqft=750&max_age_years=10&extended_age_years=15&listing_segments=new,first_hand_remaining,second_hand&limit=8`,
           ),
           fetch(`${API_BASE}/api/v1/listings/feed?days=7&limit=8`),
+          fetch(`${API_BASE}/api/v1/system/overview`),
         ]);
         if (!healthResponse.ok) {
           throw new Error(`health HTTP ${healthResponse.status}`);
@@ -139,16 +150,21 @@ export default function HomePage() {
         if (!marketMovesResponse.ok) {
           throw new Error(`listings HTTP ${marketMovesResponse.status}`);
         }
+        if (!overviewResponse.ok) {
+          throw new Error(`overview HTTP ${overviewResponse.status}`);
+        }
         const healthPayload = (await healthResponse.json()) as HealthResponse;
         const developmentPayload =
           (await developmentResponse.json()) as DevelopmentListResponse;
         const shortlistPayload = (await shortlistResponse.json()) as ShortlistResponse;
         const marketMovesPayload = (await marketMovesResponse.json()) as ListingFeedItem[];
+        const overviewPayload = (await overviewResponse.json()) as SystemOverview;
         if (!cancelled) {
           setHealth(healthPayload);
           setDevelopments(developmentPayload.items);
           setShortlist(shortlistPayload.items);
           setMarketMoves(marketMovesPayload);
+          setSystemOverview(overviewPayload);
           setError(null);
           setDevelopmentError(null);
         }
@@ -215,6 +231,30 @@ export default function HomePage() {
                   {health.database.healthy ? "healthy" : "unhealthy"}
                 </dd>
               </div>
+              {systemOverview ? (
+                <>
+                  <div>
+                    <dt>Readiness</dt>
+                    <dd>{systemOverview.readiness_status}</dd>
+                  </div>
+                  <div>
+                    <dt>Commercial Listings</dt>
+                    <dd>{systemOverview.commercial_listing_count}</dd>
+                  </div>
+                  <div>
+                    <dt>Price Events</dt>
+                    <dd>{systemOverview.price_event_count}</dd>
+                  </div>
+                  <div>
+                    <dt>Monitor Attention</dt>
+                    <dd>
+                      {systemOverview.attention_monitor_count}
+                      {" / "}
+                      {systemOverview.active_monitor_count}
+                    </dd>
+                  </div>
+                </>
+              ) : null}
             </dl>
           ) : (
             <p className="muted">
@@ -263,6 +303,12 @@ export default function HomePage() {
                   <Link href="/shortlist">Open full shortlist</Link>
                 </div>
               </div>
+              {systemOverview?.readiness_notes?.length ? (
+                <div className="dashboard-callout">
+                  <strong>Preflight Notes</strong>
+                  <span>{systemOverview.readiness_notes.join(" / ")}</span>
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="muted">No shortlist candidates yet.</p>

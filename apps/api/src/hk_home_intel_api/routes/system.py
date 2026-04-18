@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from hk_home_intel_domain.maintenance import compute_preflight_summary
 from hk_home_intel_domain.models import Development, Document, RefreshJobRun, SchedulerPlanOverride, WatchlistItem
 from hk_home_intel_domain.refresh import launch_due_refresh_plans, launch_refresh_plan
 from hk_home_intel_shared.db import get_db_session
@@ -31,6 +32,12 @@ class SystemOverviewResponse(BaseModel):
     development_with_coordinates_count: int
     document_count: int
     watchlist_count: int
+    commercial_listing_count: int
+    price_event_count: int
+    active_monitor_count: int
+    attention_monitor_count: int
+    readiness_status: str
+    readiness_notes: list[str]
     latest_job: RefreshJobRunSummary | None
 
 
@@ -150,19 +157,21 @@ def list_refresh_jobs(
 
 @router.get("/overview", response_model=SystemOverviewResponse)
 def system_overview(session: Session = Depends(get_db_session)) -> SystemOverviewResponse:
+    preflight = compute_preflight_summary(session)
     latest_job = session.scalar(
         select(RefreshJobRun).order_by(RefreshJobRun.started_at.desc()).limit(1)
     )
     return SystemOverviewResponse(
-        development_count=session.scalar(select(func.count()).select_from(Development)) or 0,
-        development_with_coordinates_count=session.scalar(
-            select(func.count())
-            .select_from(Development)
-            .where(Development.lat.is_not(None), Development.lng.is_not(None))
-        )
-        or 0,
+        development_count=preflight.development_count,
+        development_with_coordinates_count=preflight.development_with_coordinates_count,
         document_count=session.scalar(select(func.count()).select_from(Document)) or 0,
         watchlist_count=session.scalar(select(func.count()).select_from(WatchlistItem)) or 0,
+        commercial_listing_count=preflight.commercial_listing_count,
+        price_event_count=preflight.price_event_count,
+        active_monitor_count=preflight.active_monitor_count,
+        attention_monitor_count=preflight.attention_monitor_count,
+        readiness_status=preflight.readiness_status,
+        readiness_notes=preflight.notes,
         latest_job=_serialize_job(latest_job) if latest_job is not None else None,
     )
 

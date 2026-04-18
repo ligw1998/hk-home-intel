@@ -22,8 +22,11 @@ router = APIRouter(prefix="/shortlist", tags=["shortlist"])
 
 
 class ShortlistProfileResponse(BaseModel):
+    min_budget_hkd: float
     max_budget_hkd: float
     bedroom_values: list[int]
+    min_saleable_area_sqft: float
+    max_saleable_area_sqft: float
     max_age_years: int
     extended_age_years: int
     listing_segments: list[str]
@@ -60,8 +63,11 @@ def _decision_band(score: int) -> str:
 def _score_development(
     item: DevelopmentSummary,
     *,
+    min_budget_hkd: float,
     max_budget_hkd: float,
     bedroom_values: list[int],
+    min_saleable_area_sqft: float,
+    max_saleable_area_sqft: float,
     max_age_years: int,
     extended_age_years: int,
     watchlist_item: WatchlistItem | None,
@@ -87,18 +93,22 @@ def _score_development(
         reasons.append("盘面同时覆盖多种来源，可继续细看。")
 
     if item.active_listing_min_price_hkd is not None:
-        ratio = item.active_listing_min_price_hkd / max(max_budget_hkd, 1)
-        if ratio <= 0.8:
-            score += 30
-            reasons.append("最低在售价明显落在预算内。")
-        elif ratio <= 1.0:
-            score += 26
-            reasons.append("最低在售价位于预算上限内。")
-        elif ratio <= 1.1:
-            score += 10
-            risks.append("最低在售价略高于预算上限，需要更强谈价空间。")
+        if item.active_listing_min_price_hkd < min_budget_hkd:
+            score += 6
+            risks.append("最低在售价低于当前目标价值带，盘质与目标盘面可能偏弱。")
         else:
-            risks.append("最低在售价明显高于当前预算。")
+            ratio = item.active_listing_min_price_hkd / max(max_budget_hkd, 1)
+            if ratio <= 0.8:
+                score += 30
+                reasons.append("最低在售价明显落在目标预算带内。")
+            elif ratio <= 1.0:
+                score += 26
+                reasons.append("最低在售价位于预算上限内。")
+            elif ratio <= 1.1:
+                score += 10
+                risks.append("最低在售价略高于预算上限，需要更强谈价空间。")
+            else:
+                risks.append("最低在售价明显高于当前预算。")
     else:
         risks.append("当前缺少可用叫价，预算匹配度仍不够明确。")
 
@@ -107,20 +117,41 @@ def _score_development(
             (index for index, value in enumerate(bedroom_values) if value in item.active_listing_bedroom_options),
             None,
         )
+        labels = {
+            0: "开放式",
+            1: "1 房",
+            2: "2 房",
+            3: "3 房",
+        }
         if matched_rank == 0:
-            score += 22
-            reasons.append(f"当前盘面包含你最优先的 {bedroom_values[0]} 房。")
+            score += 30
+            reasons.append(f"当前盘面包含你最优先的 {labels.get(bedroom_values[0], f'{bedroom_values[0]} 房')}。")
         elif matched_rank == 1:
             score += 16
-            reasons.append(f"当前盘面包含你第二优先的 {bedroom_values[1]} 房。")
+            reasons.append(f"当前盘面包含你第二优先的 {labels.get(bedroom_values[1], f'{bedroom_values[1]} 房')}。")
         elif matched_rank == 2:
             score += 10
-            reasons.append(f"当前盘面包含你第三优先的 {bedroom_values[2]} 房。")
+            reasons.append(f"当前盘面包含你第三优先的 {labels.get(bedroom_values[2], f'{bedroom_values[2]} 房')}。")
+        elif matched_rank == 3:
+            score += 4
+            reasons.append(f"当前盘面至少包含 {labels.get(bedroom_values[3], f'{bedroom_values[3]} 房')}。")
         elif item.active_listing_count > 0 and not item.active_listing_bedroom_options:
             score += 4
             risks.append("当前有盘源，但房型字段覆盖仍不完整。")
         else:
-            risks.append("当前盘面未看到你优先的 2房 / 3房 / 1房信号。")
+            risks.append("当前盘面未看到你优先的 2房 / 3房 / 1房 / 开放式信号。")
+
+    if item.active_listing_saleable_area_values:
+        if any(
+            min_saleable_area_sqft <= value <= max_saleable_area_sqft
+            for value in item.active_listing_saleable_area_values
+        ):
+            score += 14
+            reasons.append(f"当前盘面包含 {int(min_saleable_area_sqft)}-{int(max_saleable_area_sqft)} 尺区间户型。")
+        else:
+            risks.append(f"当前盘面未见 {int(min_saleable_area_sqft)}-{int(max_saleable_area_sqft)} 尺信号。")
+    elif item.active_listing_count > 0:
+        risks.append("当前盘面有房源，但实用面积字段覆盖仍不完整。")
 
     if item.listing_segment in {ListingSegment.NEW, ListingSegment.FIRST_HAND_REMAINING}:
         score += 18
@@ -179,8 +210,11 @@ def shortlist_developments(
     region: str | None = None,
     listing_segments: str | None = Query(default="new,first_hand_remaining,second_hand"),
     q: str | None = Query(default=None),
-    max_budget_hkd: float = Query(default=16_000_000, ge=0),
-    bedroom_values: str | None = Query(default="2,3,1"),
+    min_budget_hkd: float = Query(default=8_000_000, ge=0),
+    max_budget_hkd: float = Query(default=18_000_000, ge=0),
+    bedroom_values: str | None = Query(default="2,3,1,0"),
+    min_saleable_area_sqft: float = Query(default=400, ge=0),
+    max_saleable_area_sqft: float = Query(default=750, ge=0),
     max_age_years: int = Query(default=10, ge=0),
     extended_age_years: int = Query(default=15, ge=0),
     lang: str = Query(default="zh-Hant"),
@@ -223,12 +257,31 @@ def shortlist_developments(
             ).lower()
             if q.strip().lower() not in haystack:
                 continue
+        if summary.active_listing_min_price_hkd is not None and summary.active_listing_min_price_hkd < min_budget_hkd:
+            continue
+        if summary.active_listing_min_price_hkd is not None and summary.active_listing_min_price_hkd > max_budget_hkd:
+            continue
+        if parsed_bedroom_values and not any(
+            value in summary.active_listing_bedroom_options for value in parsed_bedroom_values
+        ):
+            continue
+        if summary.listing_segment == ListingSegment.SECOND_HAND:
+            if summary.age_years is None or summary.age_years > extended_age_years:
+                continue
+        if summary.active_listing_saleable_area_values and not any(
+            min_saleable_area_sqft <= value <= max_saleable_area_sqft
+            for value in summary.active_listing_saleable_area_values
+        ):
+            continue
 
         watchlist_item = watchlist_items.get(summary.id)
         score, reasons, risks = _score_development(
             summary,
+            min_budget_hkd=min_budget_hkd,
             max_budget_hkd=max_budget_hkd,
             bedroom_values=parsed_bedroom_values,
+            min_saleable_area_sqft=min_saleable_area_sqft,
+            max_saleable_area_sqft=max_saleable_area_sqft,
             max_age_years=max_age_years,
             extended_age_years=extended_age_years,
             watchlist_item=watchlist_item,
@@ -276,8 +329,11 @@ def shortlist_developments(
 
     return ShortlistResponse(
         profile=ShortlistProfileResponse(
+            min_budget_hkd=min_budget_hkd,
             max_budget_hkd=max_budget_hkd,
             bedroom_values=parsed_bedroom_values,
+            min_saleable_area_sqft=min_saleable_area_sqft,
+            max_saleable_area_sqft=max_saleable_area_sqft,
             max_age_years=max_age_years,
             extended_age_years=extended_age_years,
             listing_segments=[item.value for item in parsed_listing_segments] if parsed_listing_segments else [],

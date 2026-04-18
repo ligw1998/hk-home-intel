@@ -18,6 +18,12 @@ from hk_home_intel_domain.ingestion import (
     import_srpe_sample,
 )
 from hk_home_intel_domain.maintenance import cleanup_runtime_artifacts
+from hk_home_intel_domain.maintenance import compute_preflight_summary
+from hk_home_intel_domain.commercial_discovery import (
+    discover_commercial_monitor_candidates,
+    serialize_commercial_discovery_summary,
+)
+from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
 from hk_home_intel_domain.refresh import (
     execute_commercial_search_monitor_batch,
     execute_commercial_search_monitor_refresh,
@@ -96,6 +102,23 @@ def main() -> None:
             args.detail_snapshot_days,
             args.keep_latest_snapshots_per_object,
         )
+        return
+    if args.command == "sync-commercial-monitor-config":
+        run_sync_commercial_monitor_config(args.path, args.dry_run)
+        return
+    if args.command == "discover-commercial-monitor-candidates":
+        run_discover_commercial_monitor_candidates(
+            args.source,
+            args.limit,
+            args.validate,
+            args.create_monitors,
+            args.activate_created,
+            args.include_existing,
+            args.development_id,
+        )
+        return
+    if args.command == "preflight-check":
+        run_preflight_check()
         return
     if args.command == "download-srpe-documents":
         run_download_srpe_documents(args.source_external_id, args.force)
@@ -209,6 +232,21 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=5,
     )
+
+    monitor_sync_parser = subparsers.add_parser("sync-commercial-monitor-config")
+    monitor_sync_parser.add_argument("--path", dest="path", default="configs/commercial_monitors.toml")
+    monitor_sync_parser.add_argument("--dry-run", dest="dry_run", action="store_true")
+
+    discovery_parser = subparsers.add_parser("discover-commercial-monitor-candidates")
+    discovery_parser.add_argument("--source", dest="source", default="centanet")
+    discovery_parser.add_argument("--limit", dest="limit", type=int, default=20)
+    discovery_parser.add_argument("--validate", dest="validate", action="store_true")
+    discovery_parser.add_argument("--create-monitors", dest="create_monitors", action="store_true")
+    discovery_parser.add_argument("--activate-created", dest="activate_created", action="store_true")
+    discovery_parser.add_argument("--include-existing", dest="include_existing", action="store_true")
+    discovery_parser.add_argument("--development-id", dest="development_id", default=None)
+
+    subparsers.add_parser("preflight-check")
 
     download_parser = subparsers.add_parser("download-srpe-documents")
     download_parser.add_argument("--source-external-id", dest="source_external_id", required=True)
@@ -593,6 +631,77 @@ def run_cleanup_runtime_artifacts(
                 "refresh_jobs_deleted": summary.refresh_jobs_deleted,
                 "snapshots_deleted": summary.snapshots_deleted,
                 "files_deleted": summary.files_deleted,
+            },
+            indent=2,
+        )
+    )
+
+
+def run_sync_commercial_monitor_config(path: str, dry_run: bool) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = sync_commercial_monitor_config(session, path=path, dry_run=dry_run)
+
+    print(
+        json.dumps(
+            {
+                "path": summary.path,
+                "processed": summary.processed,
+                "created": summary.created,
+                "updated": summary.updated,
+                "unchanged": summary.unchanged,
+                "dry_run": summary.dry_run,
+            },
+            indent=2,
+        )
+    )
+
+
+def run_discover_commercial_monitor_candidates(
+    source: str,
+    limit: int,
+    validate: bool,
+    create_monitors: bool,
+    activate_created: bool,
+    include_existing: bool,
+    development_id: str | None,
+) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source=source,
+            limit=limit,
+            validate=validate,
+            create_monitors=create_monitors,
+            activate_created=activate_created,
+            include_existing=include_existing,
+            development_id=development_id,
+        )
+
+    print(json.dumps(serialize_commercial_discovery_summary(summary), indent=2, ensure_ascii=False))
+
+
+def run_preflight_check() -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = compute_preflight_summary(session)
+
+    print(
+        json.dumps(
+            {
+                "readiness_status": summary.readiness_status,
+                "notes": summary.notes,
+                "development_count": summary.development_count,
+                "development_with_coordinates_count": summary.development_with_coordinates_count,
+                "commercial_listing_count": summary.commercial_listing_count,
+                "price_event_count": summary.price_event_count,
+                "active_monitor_count": summary.active_monitor_count,
+                "attention_monitor_count": summary.attention_monitor_count,
+                "latest_job_status": summary.latest_job_status,
             },
             indent=2,
         )

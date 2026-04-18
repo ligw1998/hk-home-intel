@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+from hk_home_intel_domain.commercial_discovery import discover_commercial_monitor_candidates
 from hk_home_intel_domain.enums import JobRunStatus
-from hk_home_intel_domain.models import CommercialSearchMonitor, RefreshJobRun
+from hk_home_intel_domain.models import CommercialSearchMonitor, Development, RefreshJobRun
+from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
 from hk_home_intel_domain.refresh import (
     _resolve_task_offset,
     execute_commercial_search_monitor_batch,
@@ -12,6 +14,7 @@ from hk_home_intel_domain.refresh import (
 from hk_home_intel_shared.db import get_engine
 from hk_home_intel_shared.models.base import Base
 from hk_home_intel_shared.scheduler import get_due_scheduler_plan_names, get_scheduler_plan_statuses, load_scheduler_plans
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 
@@ -391,3 +394,295 @@ def test_execute_commercial_search_monitor_batch_runs_active_monitors(tmp_path: 
     assert result["source"] == "centanet"
     assert result["monitor_count"] == 1
     assert len(calls) == 1
+
+
+def test_sync_commercial_monitor_config_creates_and_updates(tmp_path: Path) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'monitor-sync.db'}")
+    Base.metadata.create_all(engine)
+    config_path = tmp_path / "commercial_monitors.toml"
+    config_path.write_text(
+        """
+[[monitor]]
+source = "centanet"
+name = "Sync Test"
+search_url = "https://example.com/centanet-search"
+scope_type = "development"
+development_name_hint = "測試盤"
+district = "Kai Tak"
+region = "Kowloon"
+note = "initial"
+is_active = true
+with_details = true
+detect_withdrawn = false
+tags = ["buyer-focus"]
+
+[monitor.criteria]
+listing_segments = ["second_hand"]
+min_budget_hkd = 8000000
+max_budget_hkd = 18000000
+bedroom_values = [2, 3, 1, 0]
+min_saleable_area_sqft = 400
+max_saleable_area_sqft = 750
+max_age_years = 10
+default_limit = 20
+detail_limit = 8
+priority_level = 70
+detail_policy = "priority_only"
+""",
+        encoding="utf-8",
+    )
+
+    with Session(engine) as session:
+        summary = sync_commercial_monitor_config(session, path=config_path)
+        assert summary.created == 1
+        assert summary.updated == 0
+        monitor = session.scalar(select(CommercialSearchMonitor).limit(1))
+        assert monitor is not None
+        assert monitor.name == "Sync Test"
+        assert monitor.criteria_json["max_saleable_area_sqft"] == 750
+
+    config_path.write_text(
+        """
+[[monitor]]
+source = "centanet"
+name = "Sync Test Updated"
+search_url = "https://example.com/centanet-search"
+scope_type = "development"
+development_name_hint = "測試盤"
+district = "Kai Tak"
+region = "Kowloon"
+note = "updated"
+is_active = true
+with_details = false
+detect_withdrawn = false
+tags = ["buyer-focus", "starter"]
+
+[monitor.criteria]
+listing_segments = ["second_hand"]
+min_budget_hkd = 8000000
+max_budget_hkd = 18000000
+bedroom_values = [2, 3, 1, 0]
+min_saleable_area_sqft = 400
+max_saleable_area_sqft = 750
+max_age_years = 15
+default_limit = 30
+priority_level = 55
+detail_policy = "never"
+""",
+        encoding="utf-8",
+    )
+
+    with Session(engine) as session:
+        summary = sync_commercial_monitor_config(session, path=config_path)
+        assert summary.created == 0
+        assert summary.updated == 1
+        monitor = session.scalar(select(CommercialSearchMonitor).limit(1))
+        assert monitor is not None
+        assert monitor.name == "Sync Test Updated"
+        assert monitor.with_details is False
+        assert monitor.criteria_json["detail_policy"] == "never"
+
+
+def test_discover_centanet_monitor_candidates_can_validate_and_create(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-centanet.db'}")
+    Base.metadata.create_all(engine)
+    fixture_html = """
+    <html>
+      <head><title>買樓｜最新匯璽樓盤 - 中原地產</title></head>
+      <body>
+        <div>網上搵樓</div>
+        <div>出售樓盤 共 0 個</div>
+        <div>匯璽 5期 匯璽III 8座 2房</div>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.CentanetAdapter.fetch_search_results_html",
+        lambda self, url: fixture_html,
+    )
+
+    with Session(engine) as session:
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="srpe-001",
+                source_url="https://www.srpe.gov.hk/",
+                name_zh="匯璽",
+                name_en="Cullinan West",
+                name_translations_json={"zh-Hant": "匯璽", "zh-Hans": "汇玺", "en": "Cullinan West"},
+                aliases_json=["匯璽", "汇玺", "Cullinan West"],
+                district="Sham Shui Po",
+                region="Kowloon",
+                listing_segment="second_hand",
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="centanet",
+            limit=5,
+            validate=True,
+            create_monitors=True,
+            activate_created=False,
+        )
+
+        assert summary.generated == 1
+        assert summary.validated == 1
+        assert summary.created_monitors == 1
+        assert summary.candidates[0].validated is True
+        assert summary.candidates[0].search_url.endswith("%E5%8C%AF%E7%92%BD")
+
+        monitor = session.scalar(select(CommercialSearchMonitor).limit(1))
+        assert monitor is not None
+        assert monitor.source == "centanet"
+        assert monitor.is_active is False
+        assert monitor.criteria_json["default_limit"] == 20
+        assert monitor.criteria_json["detail_policy"] == "priority_only"
+
+
+def test_discover_centanet_monitor_candidates_validates_via_page_text(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-centanet-page-text.db'}")
+    Base.metadata.create_all(engine)
+    html = """
+    <html>
+      <head><title>買樓｜最新藍塘傲樓盤 - 中原地產</title></head>
+      <body>
+        <div>網上搵樓</div>
+        <div>出售樓盤 共 0 個</div>
+        <div>藍塘傲 8座 2房 將軍澳</div>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.CentanetAdapter.fetch_search_results_html",
+        lambda self, url: html,
+    )
+
+    with Session(engine) as session:
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="srpe-002",
+                source_url="https://www.srpe.gov.hk/",
+                name_zh="藍塘傲",
+                aliases_json=["藍塘傲"],
+                district="Tseung Kwan O",
+                region="New Territories",
+                listing_segment="second_hand",
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="centanet",
+            limit=3,
+            validate=True,
+            create_monitors=False,
+        )
+
+        assert summary.generated == 1
+        assert summary.validated == 1
+        assert summary.candidates[0].validated is True
+
+
+def test_discover_centanet_monitor_candidates_validates_via_canonical_and_detail_links(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-centanet-link-signals.db'}")
+    Base.metadata.create_all(engine)
+    html = """
+    <html>
+      <head>
+        <title>買樓｜最新樓盤 - 中原地產</title>
+        <link rel="canonical" href="/findproperty/list/buy/NOVO%20LAND">
+      </head>
+      <body>
+        <div>網上搵樓</div>
+        <div>出售樓盤 共 12 個</div>
+        <a href="https://hk.centanet.com/findproperty/detail/NOVO-LAND_CZH123">Open detail</a>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.CentanetAdapter.fetch_search_results_html",
+        lambda self, url: html,
+    )
+
+    with Session(engine) as session:
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="srpe-003",
+                source_url="https://www.srpe.gov.hk/",
+                name_en="NOVO LAND",
+                aliases_json=["NOVO LAND"],
+                district="Tuen Mun",
+                region="New Territories",
+                listing_segment="first_hand_remaining",
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="centanet",
+            limit=3,
+            validate=True,
+            create_monitors=False,
+        )
+
+        assert summary.generated == 1
+        assert summary.validated == 1
+        assert summary.candidates[0].validated is True
+
+
+def test_discover_ricacorp_monitor_candidates_can_validate(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-ricacorp.db'}")
+    Base.metadata.create_all(engine)
+    fixture_path = Path("packages/connectors/src/hk_home_intel_connectors/fixtures/ricacorp_search_results_sample.html")
+    fixture_html = fixture_path.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_search_results_html",
+        lambda self, url: fixture_html,
+    )
+
+    with Session(engine) as session:
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="srpe-rica-001",
+                source_url="https://www.srpe.gov.hk/",
+                name_zh="逸瓏",
+                name_translations_json={"zh-Hant": "逸瓏", "zh-Hans": "逸珑"},
+                aliases_json=["逸瓏", "逸珑"],
+                district="Kowloon Tong",
+                region="Kowloon",
+                listing_segment="second_hand",
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="ricacorp",
+            limit=5,
+            validate=True,
+            create_monitors=False,
+        )
+
+        assert summary.generated == 1
+        assert summary.validated == 1
+        assert summary.created_monitors == 0
+        assert summary.candidates[0].validated is True
+        assert summary.candidates[0].search_url.endswith("%E9%80%B8%E7%93%8F-bigest-hk")

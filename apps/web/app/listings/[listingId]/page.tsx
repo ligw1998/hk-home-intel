@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { MoneyValue } from "../../components/money-value";
+import { formatAreaDual } from "../../lib/area";
 import { formatEventType, formatListingStatus } from "../../lib/listing-events";
 
 type ListingDetail = {
@@ -217,7 +218,7 @@ export default function ListingDetailPage() {
               <div><dt>Status</dt><dd>{detail.status}</dd></div>
               <div><dt>Asking</dt><dd><MoneyValue amount={detail.asking_price_hkd} /></dd></div>
               <div><dt>Price / sqft</dt><dd><MoneyValue amount={detail.price_per_sqft} /></dd></div>
-              <div><dt>Saleable</dt><dd>{detail.saleable_area_sqft ? `${detail.saleable_area_sqft} sqft` : "TBD"}</dd></div>
+              <div><dt>Saleable</dt><dd>{formatAreaDual(detail.saleable_area_sqft)}</dd></div>
               <div><dt>Bedrooms</dt><dd>{detail.bedrooms ?? "TBD"}</dd></div>
               <div><dt>Bathrooms</dt><dd>{detail.bathrooms ?? "TBD"}</dd></div>
               <div><dt>Address</dt><dd>{detail.address ?? "TBD"}</dd></div>

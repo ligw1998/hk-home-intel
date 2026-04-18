@@ -21,6 +21,7 @@ type ShortlistItem = {
   active_listing_min_price_hkd: number | null;
   active_listing_max_price_hkd: number | null;
   active_listing_bedroom_mix: Record<string, number>;
+  active_listing_saleable_area_values: number[];
   latest_listing_event_at: string | null;
   decision_score: number;
   decision_band: string;
@@ -35,8 +36,11 @@ type ShortlistItem = {
 
 type ShortlistResponse = {
   profile: {
+    min_budget_hkd: number;
     max_budget_hkd: number;
     bedroom_values: number[];
+    min_saleable_area_sqft: number;
+    max_saleable_area_sqft: number;
     max_age_years: number;
     extended_age_years: number;
     listing_segments: string[];
@@ -113,11 +117,16 @@ function buildWhyNow(item: ShortlistItem): string {
 
   if (
     item.estimated_total_acquisition_cost_hkd !== null &&
-    item.estimated_total_acquisition_cost_hkd <= 16_000_000
+    item.estimated_total_acquisition_cost_hkd >= 8_000_000 &&
+    item.estimated_total_acquisition_cost_hkd <= 18_000_000
   ) {
-    parts.push("税后总买入仍在当前预算内");
-  } else if (item.active_listing_min_price_hkd !== null && item.active_listing_min_price_hkd <= 16_000_000) {
-    parts.push("最低叫价仍落在预算边缘内");
+    parts.push("税后总买入仍在目标预算带内");
+  } else if (
+    item.active_listing_min_price_hkd !== null &&
+    item.active_listing_min_price_hkd >= 8_000_000 &&
+    item.active_listing_min_price_hkd <= 18_000_000
+  ) {
+    parts.push("最低叫价位于目标价值带内");
   }
 
   if ("2" in item.active_listing_bedroom_mix) {
@@ -126,6 +135,12 @@ function buildWhyNow(item: ShortlistItem): string {
     parts.push("当前盘面有 3 房信号");
   } else if ("1" in item.active_listing_bedroom_mix) {
     parts.push("当前盘面至少有 1 房信号");
+  } else if ("0" in item.active_listing_bedroom_mix) {
+    parts.push("当前盘面至少有开放式信号");
+  }
+
+  if (item.active_listing_saleable_area_values.some((value) => value >= 400 && value <= 750)) {
+    parts.push("已有 400-750 尺户型");
   }
 
   if (item.active_listing_count >= 5) {
@@ -142,10 +157,13 @@ function buildWhyNow(item: ShortlistItem): string {
 
 export default function ShortlistPage() {
   const [items, setItems] = useState<ShortlistItem[]>([]);
-  const [budget, setBudget] = useState("16000000");
+  const [minBudget, setMinBudget] = useState("8000000");
+  const [budget, setBudget] = useState("18000000");
   const [maxAge, setMaxAge] = useState("10");
   const [extendedAge, setExtendedAge] = useState("15");
-  const [bedroomValues, setBedroomValues] = useState("2,3,1");
+  const [bedroomValues, setBedroomValues] = useState("2,3,1,0");
+  const [minSaleableArea, setMinSaleableArea] = useState("400");
+  const [maxSaleableArea, setMaxSaleableArea] = useState("750");
   const [segments, setSegments] = useState(["new", "first_hand_remaining", "second_hand"]);
   const [budgetReadyOnly, setBudgetReadyOnly] = useState(false);
   const [bedroomSignalOnly, setBedroomSignalOnly] = useState(false);
@@ -194,7 +212,10 @@ export default function ShortlistPage() {
         setLoading(true);
         const params = new URLSearchParams({
           lang: "zh-Hant",
+          min_budget_hkd: minBudget,
           max_budget_hkd: budget,
+          min_saleable_area_sqft: minSaleableArea,
+          max_saleable_area_sqft: maxSaleableArea,
           max_age_years: maxAge,
           extended_age_years: extendedAge,
           bedroom_values: bedroomValues,
@@ -225,7 +246,7 @@ export default function ShortlistPage() {
     return () => {
       cancelled = true;
     };
-  }, [bedroomValues, budget, extendedAge, maxAge, segments]);
+  }, [bedroomValues, budget, extendedAge, maxAge, maxSaleableArea, minBudget, minSaleableArea, segments]);
 
   return (
     <main className="page-shell">
@@ -250,8 +271,30 @@ export default function ShortlistPage() {
         <aside className="panel filter-panel">
           <h2>Decision Profile</h2>
           <label className="field">
+            <span>Budget Floor (HKD)</span>
+            <input type="number" min="0" value={minBudget} onChange={(event) => setMinBudget(event.target.value)} />
+          </label>
+          <label className="field">
             <span>Budget Ceiling (HKD)</span>
             <input type="number" min="0" value={budget} onChange={(event) => setBudget(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Min Saleable Area (sqft)</span>
+            <input
+              type="number"
+              min="0"
+              value={minSaleableArea}
+              onChange={(event) => setMinSaleableArea(event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Max Saleable Area (sqft)</span>
+            <input
+              type="number"
+              min="0"
+              value={maxSaleableArea}
+              onChange={(event) => setMaxSaleableArea(event.target.value)}
+            />
           </label>
           <label className="field">
             <span>Ideal Max Age</span>
@@ -292,8 +335,8 @@ export default function ShortlistPage() {
             </div>
           </div>
           <p className="muted">
-            Default profile follows your current preference: new / first-hand / younger second-hand,
-            2房优先，再看 3房 和 1房，预算上限 1600 万。
+            Default profile follows your current preference: 800萬-1800萬、400-750呎（約 37-70 平方米）、2房优先，
+            再看 3房、1房、开放式；优先新盘 / 一手，再看 10-15 年内二手。
           </p>
           <div className="field">
             <span>Quick Decision Filters</span>

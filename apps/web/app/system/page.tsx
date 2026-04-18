@@ -20,6 +20,12 @@ type SystemOverview = {
   development_with_coordinates_count: number;
   document_count: number;
   watchlist_count: number;
+  commercial_listing_count: number;
+  price_event_count: number;
+  active_monitor_count: number;
+  attention_monitor_count: number;
+  readiness_status: string;
+  readiness_notes: string[];
   latest_job: RefreshJobRunSummary | null;
 };
 
@@ -847,6 +853,10 @@ export default function SystemPage() {
           {overview ? (
             <dl className="kv-list">
               <div>
+                <dt>Readiness</dt>
+                <dd>{overview.readiness_status}</dd>
+              </div>
+              <div>
                 <dt>Developments</dt>
                 <dd>{overview.development_count}</dd>
               </div>
@@ -859,9 +869,31 @@ export default function SystemPage() {
                 <dd>{overview.document_count}</dd>
               </div>
               <div>
+                <dt>Commercial Listings</dt>
+                <dd>{overview.commercial_listing_count}</dd>
+              </div>
+              <div>
+                <dt>Price Events</dt>
+                <dd>{overview.price_event_count}</dd>
+              </div>
+              <div>
+                <dt>Active Monitors</dt>
+                <dd>{overview.active_monitor_count}</dd>
+              </div>
+              <div>
+                <dt>Monitor Attention</dt>
+                <dd>{overview.attention_monitor_count}</dd>
+              </div>
+              <div>
                 <dt>Watchlist</dt>
                 <dd>{overview.watchlist_count}</dd>
               </div>
+              {overview.readiness_notes.length > 0 ? (
+                <div>
+                  <dt>Readiness Notes</dt>
+                  <dd>{overview.readiness_notes.join(" / ")}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>Latest Job</dt>
                 <dd>{overview.latest_job?.status ?? "No jobs yet"}</dd>

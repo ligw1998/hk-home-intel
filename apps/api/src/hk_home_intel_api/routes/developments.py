@@ -33,7 +33,10 @@ class DevelopmentSummary(BaseModel):
     active_listing_count: int
     active_listing_min_price_hkd: float | None
     active_listing_max_price_hkd: float | None
+    active_listing_min_saleable_area_sqft: float | None
+    active_listing_max_saleable_area_sqft: float | None
     active_listing_bedroom_options: list[int]
+    active_listing_saleable_area_values: list[float]
     active_listing_bedroom_mix: dict[str, int]
     active_listing_source_counts: dict[str, int]
     latest_listing_event_at: str | None
@@ -199,7 +202,20 @@ def _serialize_development(
             if metrics.get("active_listing_max_price_hkd") is not None
             else None
         ),
+        active_listing_min_saleable_area_sqft=(
+            float(metrics["active_listing_min_saleable_area_sqft"])
+            if metrics.get("active_listing_min_saleable_area_sqft") is not None
+            else None
+        ),
+        active_listing_max_saleable_area_sqft=(
+            float(metrics["active_listing_max_saleable_area_sqft"])
+            if metrics.get("active_listing_max_saleable_area_sqft") is not None
+            else None
+        ),
         active_listing_bedroom_options=list(metrics.get("active_listing_bedroom_options", [])),
+        active_listing_saleable_area_values=[
+            float(value) for value in list(metrics.get("active_listing_saleable_area_values", []))
+        ],
         active_listing_bedroom_mix=dict(metrics.get("active_listing_bedroom_mix", {})),
         active_listing_source_counts=dict(metrics.get("active_listing_source_counts", {})),
         latest_listing_event_at=(
@@ -311,7 +327,10 @@ def _build_listing_metrics(session: Session, development_ids: list[str]) -> dict
             "active_listing_count": 0,
             "active_listing_min_price_hkd": None,
             "active_listing_max_price_hkd": None,
+            "active_listing_min_saleable_area_sqft": None,
+            "active_listing_max_saleable_area_sqft": None,
             "active_listing_bedroom_options": [],
+            "active_listing_saleable_area_values": [],
             "active_listing_bedroom_mix": {},
             "active_listing_source_counts": {},
             "active_listing_source_urls": {},
@@ -320,6 +339,7 @@ def _build_listing_metrics(session: Session, development_ids: list[str]) -> dict
         for development_id in development_ids
     }
     bedroom_sets: dict[str, set[int]] = {development_id: set() for development_id in development_ids}
+    saleable_area_sets: dict[str, set[float]] = {development_id: set() for development_id in development_ids}
     for row in rows:
         item = metrics[row.development_id]
         item["active_listing_count"] = int(item["active_listing_count"]) + 1
@@ -333,12 +353,24 @@ def _build_listing_metrics(session: Session, development_ids: list[str]) -> dict
             current_max_price is None or row.asking_price_hkd > current_max_price
         ):
             item["active_listing_max_price_hkd"] = row.asking_price_hkd
+        current_min_saleable = item["active_listing_min_saleable_area_sqft"]
+        current_max_saleable = item["active_listing_max_saleable_area_sqft"]
+        if row.saleable_area_sqft is not None and (
+            current_min_saleable is None or row.saleable_area_sqft < current_min_saleable
+        ):
+            item["active_listing_min_saleable_area_sqft"] = row.saleable_area_sqft
+        if row.saleable_area_sqft is not None and (
+            current_max_saleable is None or row.saleable_area_sqft > current_max_saleable
+        ):
+            item["active_listing_max_saleable_area_sqft"] = row.saleable_area_sqft
         if row.bedrooms is not None:
             bedroom_sets[row.development_id].add(row.bedrooms)
             bedroom_mix = dict(item["active_listing_bedroom_mix"])
             bedroom_key = str(row.bedrooms)
             bedroom_mix[bedroom_key] = bedroom_mix.get(bedroom_key, 0) + 1
             item["active_listing_bedroom_mix"] = bedroom_mix
+        if row.saleable_area_sqft is not None:
+            saleable_area_sets[row.development_id].add(float(row.saleable_area_sqft))
         source_counts = dict(item["active_listing_source_counts"])
         source_counts[row.source] = source_counts.get(row.source, 0) + 1
         item["active_listing_source_counts"] = source_counts
@@ -348,6 +380,8 @@ def _build_listing_metrics(session: Session, development_ids: list[str]) -> dict
             item["active_listing_source_urls"] = source_urls
     for development_id, values in bedroom_sets.items():
         metrics[development_id]["active_listing_bedroom_options"] = sorted(values)
+    for development_id, values in saleable_area_sets.items():
+        metrics[development_id]["active_listing_saleable_area_values"] = sorted(values)
     latest_event_rows = session.execute(
         select(PriceEvent.development_id, func.max(PriceEvent.event_at))
         .where(PriceEvent.development_id.in_(development_ids))
@@ -362,9 +396,12 @@ def _matches_preference_filters(
     item: DevelopmentSummary,
     *,
     q: str | None,
+    min_budget_hkd: float | None,
     max_budget_hkd: float | None,
     bedroom_values: list[int],
     max_age_years: int | None,
+    min_saleable_area_sqft: float | None,
+    max_saleable_area_sqft: float | None,
 ) -> bool:
     if q:
         haystack = " ".join(
@@ -380,11 +417,23 @@ def _matches_preference_filters(
         ).lower()
         if q.strip().lower() not in haystack:
             return False
+    if min_budget_hkd is not None:
+        if item.active_listing_min_price_hkd is None or item.active_listing_min_price_hkd < min_budget_hkd:
+            return False
     if max_budget_hkd is not None:
         if item.active_listing_min_price_hkd is None or item.active_listing_min_price_hkd > max_budget_hkd:
             return False
     if bedroom_values:
         if not any(value in item.active_listing_bedroom_options for value in bedroom_values):
+            return False
+    if min_saleable_area_sqft is not None or max_saleable_area_sqft is not None:
+        if not item.active_listing_saleable_area_values:
+            return False
+        if not any(
+            (min_saleable_area_sqft is None or value >= min_saleable_area_sqft)
+            and (max_saleable_area_sqft is None or value <= max_saleable_area_sqft)
+            for value in item.active_listing_saleable_area_values
+        ):
             return False
     if max_age_years is not None:
         if item.age_years is None:
@@ -502,9 +551,12 @@ def list_developments(
     listing_segments: str | None = Query(default=None),
     has_coordinates: bool | None = None,
     q: str | None = Query(default=None),
+    min_budget_hkd: float | None = Query(default=None, ge=0),
     max_budget_hkd: float | None = Query(default=None, ge=0),
     bedroom_values: str | None = Query(default=None),
     max_age_years: int | None = Query(default=None, ge=0),
+    min_saleable_area_sqft: float | None = Query(default=None, ge=0),
+    max_saleable_area_sqft: float | None = Query(default=None, ge=0),
     source: str | None = Query(default=None),
     lang: str = Query(default="zh-Hant"),
     limit: int = Query(default=20, ge=1, le=500),
@@ -529,9 +581,12 @@ def list_developments(
         if _matches_preference_filters(
             item,
             q=q,
+            min_budget_hkd=min_budget_hkd,
             max_budget_hkd=max_budget_hkd,
             bedroom_values=parsed_bedroom_values,
             max_age_years=max_age_years,
+            min_saleable_area_sqft=min_saleable_area_sqft,
+            max_saleable_area_sqft=max_saleable_area_sqft,
         )
         and (source is None or source in item.available_sources)
     ]

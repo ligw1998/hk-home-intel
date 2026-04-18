@@ -14,8 +14,11 @@ class SearchPresetCriteria(BaseModel):
     district: str | None = None
     search: str | None = None
     listing_segments: list[str] = Field(default_factory=list)
+    min_budget_hkd: float | None = None
     max_budget_hkd: float | None = None
     bedroom_values: list[int] = Field(default_factory=list)
+    min_saleable_area_sqft: float | None = None
+    max_saleable_area_sqft: float | None = None
     max_age_years: int | None = None
     watchlist_only: bool = False
 

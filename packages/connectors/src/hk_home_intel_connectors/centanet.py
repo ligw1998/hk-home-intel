@@ -264,7 +264,7 @@ class CentanetAdapter(SourceAdapter):
 
     def _extract_page_slug(self, url: str, fallback: str) -> str:
         path = url.split("?", 1)[0].rstrip("/")
-        slug = path.rsplit("/", 1)[-1]
+        slug = unquote(path.rsplit("/", 1)[-1])
         if slug:
             return slug
         return fallback

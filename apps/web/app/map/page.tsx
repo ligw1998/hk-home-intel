@@ -25,6 +25,7 @@ type DevelopmentSummary = {
   lng: number | null;
   active_listing_count: number;
   active_listing_min_price_hkd: number | null;
+  active_listing_saleable_area_values: number[];
   active_listing_bedroom_options: number[];
 };
 
@@ -47,8 +48,11 @@ type SearchPresetCriteria = {
   district: string | null;
   search: string | null;
   listing_segments: string[];
+  min_budget_hkd: number | null;
   max_budget_hkd: number | null;
   bedroom_values: number[];
+  min_saleable_area_sqft: number | null;
+  max_saleable_area_sqft: number | null;
   max_age_years: number | null;
   watchlist_only: boolean;
 };
@@ -65,7 +69,7 @@ type SearchPreset = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 const DEFAULT_SEGMENTS = ["new", "first_hand_remaining", "second_hand"];
-const SUGGESTED_BEDROOM_VALUES = [2, 3, 1];
+const SUGGESTED_BEDROOM_VALUES = [2, 3, 1, 0];
 const SOURCE_OPTIONS = [
   { value: "all", label: "All sources" },
   { value: "srpe", label: "Official / SRPE" },
@@ -100,8 +104,12 @@ function buildWhyNow(item: DevelopmentSummary): string {
   } else if (item.active_listing_count > 0) {
     reasons.push("已有在售盘源");
   }
-  if (item.active_listing_min_price_hkd !== null && item.active_listing_min_price_hkd <= 16_000_000) {
-    reasons.push("最低叫价仍在预算带内");
+  if (
+    item.active_listing_min_price_hkd !== null &&
+    item.active_listing_min_price_hkd >= 8_000_000 &&
+    item.active_listing_min_price_hkd <= 18_000_000
+  ) {
+    reasons.push("最低叫价落在目标价值带内");
   }
   if (item.active_listing_bedroom_options.includes(2)) {
     reasons.push("有 2 房信号");
@@ -109,6 +117,11 @@ function buildWhyNow(item: DevelopmentSummary): string {
     reasons.push("有 3 房信号");
   } else if (item.active_listing_bedroom_options.includes(1)) {
     reasons.push("有 1 房信号");
+  } else if (item.active_listing_bedroom_options.includes(0)) {
+    reasons.push("至少有开放式信号");
+  }
+  if (item.active_listing_saleable_area_values.some((value) => value >= 400 && value <= 750)) {
+    reasons.push("已有 400-750 尺户型");
   }
   if (item.listing_segment === "new" || item.listing_segment === "first_hand_remaining") {
     reasons.push("属于新盘 / 一手范围");
@@ -137,8 +150,11 @@ function buildCriteriaFromState(input: {
   district: string;
   search: string;
   segments: string[];
+  minBudgetHkd: string;
   maxBudgetHkd: string;
   bedroomValues: number[];
+  minSaleableAreaSqft: string;
+  maxSaleableAreaSqft: string;
   maxAgeYears: string;
   watchlistOnly: boolean;
 }): SearchPresetCriteria {
@@ -147,8 +163,13 @@ function buildCriteriaFromState(input: {
     district: input.district === "all" ? null : input.district,
     search: input.search.trim() || null,
     listing_segments: input.segments,
+    min_budget_hkd: input.minBudgetHkd === "" ? null : Number(input.minBudgetHkd),
     max_budget_hkd: input.maxBudgetHkd === "" ? null : Number(input.maxBudgetHkd),
     bedroom_values: input.bedroomValues,
+    min_saleable_area_sqft:
+      input.minSaleableAreaSqft === "" ? null : Number(input.minSaleableAreaSqft),
+    max_saleable_area_sqft:
+      input.maxSaleableAreaSqft === "" ? null : Number(input.maxSaleableAreaSqft),
     max_age_years: input.maxAgeYears === "" ? null : Number(input.maxAgeYears),
     watchlist_only: input.watchlistOnly,
   };
@@ -161,8 +182,11 @@ function applyPresetCriteria(
     setDistrict: (value: string) => void;
     setSearch: (value: string) => void;
     setSegments: (value: string[]) => void;
+    setMinBudgetHkd: (value: string) => void;
     setMaxBudgetHkd: (value: string) => void;
     setBedroomValues: (value: number[]) => void;
+    setMinSaleableAreaSqft: (value: string) => void;
+    setMaxSaleableAreaSqft: (value: string) => void;
     setMaxAgeYears: (value: string) => void;
     setWatchlistOnly: (value: boolean) => void;
   },
@@ -171,8 +195,15 @@ function applyPresetCriteria(
   setters.setDistrict(criteria.district ?? "all");
   setters.setSearch(criteria.search ?? "");
   setters.setSegments(criteria.listing_segments.length > 0 ? criteria.listing_segments : DEFAULT_SEGMENTS);
+  setters.setMinBudgetHkd(criteria.min_budget_hkd !== null ? String(criteria.min_budget_hkd) : "");
   setters.setMaxBudgetHkd(criteria.max_budget_hkd !== null ? String(criteria.max_budget_hkd) : "");
   setters.setBedroomValues(criteria.bedroom_values);
+  setters.setMinSaleableAreaSqft(
+    criteria.min_saleable_area_sqft !== null ? String(criteria.min_saleable_area_sqft) : "",
+  );
+  setters.setMaxSaleableAreaSqft(
+    criteria.max_saleable_area_sqft !== null ? String(criteria.max_saleable_area_sqft) : "",
+  );
   setters.setMaxAgeYears(criteria.max_age_years !== null ? String(criteria.max_age_years) : "");
   setters.setWatchlistOnly(criteria.watchlist_only);
 }
@@ -188,12 +219,15 @@ function MapPageContent() {
   const [district, setDistrict] = useState("all");
   const [segments, setSegments] = useState<string[]>(DEFAULT_SEGMENTS);
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [minBudgetHkd, setMinBudgetHkd] = useState("");
   const [maxBudgetHkd, setMaxBudgetHkd] = useState("");
   const [bedroomValues, setBedroomValues] = useState<number[]>([]);
+  const [minSaleableAreaSqft, setMinSaleableAreaSqft] = useState("");
+  const [maxSaleableAreaSqft, setMaxSaleableAreaSqft] = useState("");
   const [maxAgeYears, setMaxAgeYears] = useState("");
   const [watchlistOnly, setWatchlistOnly] = useState(false);
   const [presetName, setPresetName] = useState("Buyer Focus");
-  const [presetNote, setPresetNote] = useState("2房優先、1600萬內、樓齡10年內為主。");
+  const [presetNote, setPresetNote] = useState("800萬-1800萬、400-750呎（約 37-70 平方米）、2房優先，再看3房、1房、開放式。");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [presetInfo, setPresetInfo] = useState<string | null>(null);
@@ -229,8 +263,11 @@ function MapPageContent() {
               setDistrict,
               setSearch,
               setSegments,
+              setMinBudgetHkd,
               setMaxBudgetHkd,
               setBedroomValues,
+              setMinSaleableAreaSqft,
+              setMaxSaleableAreaSqft,
               setMaxAgeYears,
               setWatchlistOnly,
             });
@@ -281,8 +318,17 @@ function MapPageContent() {
         if (maxBudgetHkd !== "") {
           params.set("max_budget_hkd", maxBudgetHkd);
         }
+        if (minBudgetHkd !== "") {
+          params.set("min_budget_hkd", minBudgetHkd);
+        }
         if (bedroomValues.length > 0) {
           params.set("bedroom_values", bedroomValues.join(","));
+        }
+        if (minSaleableAreaSqft !== "") {
+          params.set("min_saleable_area_sqft", minSaleableAreaSqft);
+        }
+        if (maxSaleableAreaSqft !== "") {
+          params.set("max_saleable_area_sqft", maxSaleableAreaSqft);
         }
         if (maxAgeYears !== "") {
           params.set("max_age_years", maxAgeYears);
@@ -341,7 +387,7 @@ function MapPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [bedroomValues, district, maxAgeYears, maxBudgetHkd, region, search, searchParams, segments, sourceFilter, watchlistByDevelopment, watchlistOnly]);
+  }, [bedroomValues, district, maxAgeYears, maxBudgetHkd, maxSaleableAreaSqft, minBudgetHkd, minSaleableAreaSqft, region, search, searchParams, segments, sourceFilter, watchlistByDevelopment, watchlistOnly]);
 
   const regions = useMemo(() => {
     return Array.from(
@@ -373,11 +419,14 @@ function MapPageContent() {
   function applySuggestedBuyerFocus() {
     setSegments(DEFAULT_SEGMENTS);
     setSourceFilter("all");
-    setMaxBudgetHkd("16000000");
+    setMinBudgetHkd("8000000");
+    setMaxBudgetHkd("18000000");
     setBedroomValues(SUGGESTED_BEDROOM_VALUES);
+    setMinSaleableAreaSqft("400");
+    setMaxSaleableAreaSqft("750");
     setMaxAgeYears("10");
     setWatchlistOnly(false);
-    setPresetInfo("Applied buyer-focus filter: <= 1600萬, 2房 > 3房 > 1房, age <= 10.");
+    setPresetInfo("Applied buyer-focus filter: 800萬-1800萬, 400-750呎, 2房 > 3房 > 1房 > 開放式, age <= 10.");
   }
 
   function clearPreferenceFilters() {
@@ -386,8 +435,11 @@ function MapPageContent() {
     setDistrict("all");
     setSegments(DEFAULT_SEGMENTS);
     setSourceFilter("all");
+    setMinBudgetHkd("");
     setMaxBudgetHkd("");
     setBedroomValues([]);
+    setMinSaleableAreaSqft("");
+    setMaxSaleableAreaSqft("");
     setMaxAgeYears("");
     setWatchlistOnly(false);
     setPresetInfo("Cleared filters. Showing broad live map view.");
@@ -409,8 +461,11 @@ function MapPageContent() {
       district,
       search,
       segments,
+      minBudgetHkd,
       maxBudgetHkd,
       bedroomValues,
+      minSaleableAreaSqft,
+      maxSaleableAreaSqft,
       maxAgeYears,
       watchlistOnly,
     });
@@ -504,7 +559,7 @@ function MapPageContent() {
               min="0"
               value={maxBudgetHkd}
               onChange={(event) => setMaxBudgetHkd(event.target.value)}
-              placeholder="16000000"
+              placeholder="18000000"
             />
           </label>
           <label className="field">
@@ -540,6 +595,16 @@ function MapPageContent() {
             </select>
           </label>
           <label className="field">
+            <span>Budget Floor (HKD)</span>
+            <input
+              type="number"
+              min="0"
+              value={minBudgetHkd}
+              onChange={(event) => setMinBudgetHkd(event.target.value)}
+              placeholder="8000000"
+            />
+          </label>
+          <label className="field">
             <span>Source</span>
             <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
               {SOURCE_OPTIONS.map((item) => (
@@ -569,18 +634,37 @@ function MapPageContent() {
           <div className="field">
             <span>Bedroom Preference</span>
             <div className="checkbox-stack">
-              {[2, 3, 1, 4].map((value) => (
+              {[2, 3, 1, 0].map((value) => (
                 <label key={value} className="checkbox-field">
                   <input
                     type="checkbox"
                     checked={bedroomValues.includes(value)}
                     onChange={() => setBedroomValues((current) => toggleNumberValue(current, value))}
                   />
-                  <span>{value === 4 ? "4+ rooms" : `${value} rooms`}</span>
+                  <span>{value === 0 ? "Studio" : `${value} rooms`}</span>
                 </label>
               ))}
             </div>
           </div>
+
+          <label className="field">
+            <span>Min Saleable Area (sqft)</span>
+            <input
+              type="number"
+              min="0"
+              value={minSaleableAreaSqft}
+              onChange={(event) => setMinSaleableAreaSqft(event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Max Saleable Area (sqft)</span>
+            <input
+              type="number"
+              min="0"
+              value={maxSaleableAreaSqft}
+              onChange={(event) => setMaxSaleableAreaSqft(event.target.value)}
+            />
+          </label>
 
           <label className="checkbox-field">
             <input
@@ -598,7 +682,7 @@ function MapPageContent() {
           </p>
           <p className="muted">
             Default view is broad live data. Use <code>Apply buyer focus</code> when you want the
-            tighter 1600萬 / 2房優先 / 10年內 filter.
+            tighter 800萬-1800萬 / 400-750呎（約 37-70 平方米） / 2房優先 / 10年內 filter.
           </p>
 
           <dl className="kv-list compact-kv-list">
@@ -658,7 +742,7 @@ function MapPageContent() {
               <input
                 value={presetNote}
                 onChange={(event) => setPresetNote(event.target.value)}
-                placeholder="2房優先、1600萬內、樓齡10年內為主。"
+                placeholder="800萬-1800萬、400-750呎（約 37-70 平方米）、2房優先，再看3房、1房、開放式。"
               />
             </label>
             <button type="button" className="action-button" onClick={() => void saveCurrentPreset()}>
@@ -686,8 +770,11 @@ function MapPageContent() {
                             setDistrict,
                             setSearch,
                             setSegments,
+                            setMinBudgetHkd,
                             setMaxBudgetHkd,
                             setBedroomValues,
+                            setMinSaleableAreaSqft,
+                            setMaxSaleableAreaSqft,
                             setMaxAgeYears,
                             setWatchlistOnly,
                           })

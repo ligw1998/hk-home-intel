@@ -295,11 +295,15 @@ def test_shortlist_returns_ranked_candidates_with_reasons(isolated_app: TestClie
     response = isolated_app.get("/api/v1/shortlist")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["profile"]["max_budget_hkd"] == 16000000
+    assert payload["profile"]["min_budget_hkd"] == 8000000
+    assert payload["profile"]["max_budget_hkd"] == 18000000
+    assert payload["profile"]["bedroom_values"] == [2, 3, 1, 0]
+    assert payload["profile"]["min_saleable_area_sqft"] == 400
+    assert payload["profile"]["max_saleable_area_sqft"] == 750
     assert payload["items"][0]["display_name"] == "理想候选盘"
-    assert payload["items"][0]["decision_score"] > payload["items"][1]["decision_score"]
+    assert len(payload["items"]) == 1
     assert payload["items"][0]["decision_reasons"]
-    assert "最低在售价明显落在预算内。" in payload["items"][0]["decision_reasons"]
+    assert "最低在售价明显落在目标预算带内。" in payload["items"][0]["decision_reasons"]
     assert payload["items"][0]["estimated_stamp_duty_hkd"] is not None
     assert payload["items"][0]["estimated_total_acquisition_cost_hkd"] is not None
     assert payload["items"][0]["acquisition_gap_hkd"] is None or payload["items"][0]["acquisition_gap_hkd"] >= 0
@@ -814,12 +818,15 @@ def test_search_preset_crud(isolated_app: TestClient) -> None:
         json={
             "name": "Buyer Focus",
             "scope": "development_map",
-            "note": "1600萬內、2房優先",
+            "note": "800萬-1800萬、400-750呎、2房優先",
             "is_default": True,
             "criteria": {
                 "listing_segments": ["new", "first_hand_remaining", "second_hand"],
-                "max_budget_hkd": 16000000,
-                "bedroom_values": [2, 3, 1],
+                "min_budget_hkd": 8000000,
+                "max_budget_hkd": 18000000,
+                "bedroom_values": [2, 3, 1, 0],
+                "min_saleable_area_sqft": 400,
+                "max_saleable_area_sqft": 750,
                 "max_age_years": 10,
                 "watchlist_only": False,
             },
@@ -834,7 +841,8 @@ def test_search_preset_crud(isolated_app: TestClient) -> None:
     assert list_response.status_code == 200
     list_payload = list_response.json()
     assert len(list_payload) == 1
-    assert list_payload[0]["criteria"]["max_budget_hkd"] == 16000000
+    assert list_payload[0]["criteria"]["min_budget_hkd"] == 8000000
+    assert list_payload[0]["criteria"]["max_budget_hkd"] == 18000000
 
     update_response = isolated_app.patch(
         f"/api/v1/search-presets/{create_payload['id']}",
@@ -955,6 +963,8 @@ def test_system_overview_and_refresh_jobs(isolated_app: TestClient) -> None:
     assert overview_response.status_code == 200
     overview_payload = overview_response.json()
     assert "development_count" in overview_payload
+    assert "readiness_status" in overview_payload
+    assert "commercial_listing_count" in overview_payload
     assert overview_payload["latest_job"]["job_name"] == "srpe_refresh"
 
     jobs_response = isolated_app.get("/api/v1/system/refresh-jobs")
@@ -1048,6 +1058,68 @@ def test_run_commercial_search_monitor_batch_endpoint(isolated_app: TestClient, 
     assert payload["status"] == "accepted"
     assert payload["job_id"] == "batch-job-123"
     assert payload["source"] == "centanet"
+
+
+def test_discover_commercial_search_monitor_candidates_endpoint(
+    isolated_app: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "hk_home_intel_api.routes.commercial_search_monitors.run_commercial_monitor_discovery",
+        lambda session, **kwargs: type(
+            "Summary",
+            (),
+            {
+                "source": kwargs["source"],
+                "processed": 4,
+                "generated": 2,
+                "validated": 1,
+                "created_monitors": 1,
+                "candidates": [
+                    type(
+                        "Candidate",
+                        (),
+                        {
+                            "source": kwargs["source"],
+                            "development_id": "dev-1",
+                            "development_name": "匯璽",
+                            "district": "Sham Shui Po",
+                            "region": "Kowloon",
+                            "listing_segment": "second_hand",
+                            "search_url": "https://hk.centanet.com/findproperty/list/buy/%E5%8C%AF%E7%92%BD_3-EESPWPPYPS",
+                            "development_name_hint": "匯璽",
+                            "match_score": 88,
+                            "reasons": ["Observed listing price band overlaps the target budget."],
+                            "validated": True,
+                            "validation_status": "validated",
+                            "validation_message": "Matched page/development name: 匯璽",
+                            "existing_monitor_id": None,
+                            "created_monitor_id": "cm-1",
+                        },
+                    )(),
+                ],
+            },
+        )(),
+    )
+
+    response = isolated_app.post(
+        "/api/v1/commercial-search-monitors/discovery",
+        json={
+            "source": "centanet",
+            "limit": 10,
+            "validate": True,
+            "create_monitors": True,
+            "activate_created": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "centanet"
+    assert payload["generated"] == 2
+    assert payload["created_monitors"] == 1
+    assert payload["candidates"][0]["validation_status"] == "validated"
+    assert payload["candidates"][0]["created_monitor_id"] == "cm-1"
 
 
 def test_run_due_scheduler_plans_endpoint(isolated_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
