@@ -1,6 +1,7 @@
 .DS_Store
 .env
-.env.example
+.env.*
+!.env.example
 .env.local
 .venv/
 .pytest_cache/
@@ -16,6 +17,12 @@ node_modules/
 .next/
 dist/
 coverage/
+.coverage
+.coverage.*
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 data/dev/
 data/raw/
