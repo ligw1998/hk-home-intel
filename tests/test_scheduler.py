@@ -13,8 +13,9 @@ from hk_home_intel_domain.commercial_discovery import (
     set_commercial_monitors_active_state,
 )
 from hk_home_intel_connectors.ricacorp import RicacorpAdapter
+from hk_home_intel_domain.launch_watch import sync_launch_watch_config
 from hk_home_intel_domain.enums import JobRunStatus
-from hk_home_intel_domain.models import CommercialSearchMonitor, Development, RefreshJobRun
+from hk_home_intel_domain.models import CommercialSearchMonitor, Development, LaunchWatchProject, RefreshJobRun
 from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
 from hk_home_intel_domain.refresh import (
     _resolve_task_offset,
@@ -25,7 +26,9 @@ from hk_home_intel_domain.refresh import (
 from hk_home_intel_shared.db import get_engine
 from hk_home_intel_shared.models.base import Base
 from hk_home_intel_shared.scheduler import get_due_scheduler_plan_names, get_scheduler_plan_statuses, load_scheduler_plans
-from sqlalchemy import select
+from hk_home_intel_shared.db import get_session_factory, reset_db_caches
+from hk_home_intel_shared.settings import clear_settings_cache
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 
@@ -45,6 +48,47 @@ def test_load_scheduler_plans_reads_expected_tasks() -> None:
     assert plans["centanet_probe"].tasks[0].with_details is True
     assert plans["daily_local"].auto_run is True
     assert plans["daily_local"].interval_minutes == 1440
+
+
+def test_sync_launch_watch_config_creates_projects(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "launch-watch.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    config_path = tmp_path / "launch_watch.toml"
+    config_path.write_text(
+        """
+[[project]]
+source = "manual"
+project_name = "測試新盤"
+project_name_en = "Test Launch"
+district = "Kai Tak"
+region = "Kowloon"
+expected_launch_window = "2026-2027"
+launch_stage = "launch_watch"
+source_url = "https://example.com/watch"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        summary = sync_launch_watch_config(session, path=config_path, dry_run=False)
+        created = session.scalar(select(func.count()).select_from(LaunchWatchProject))
+
+    assert summary.processed == 1
+    assert summary.created == 1
+    assert created == 1
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
 
 
 def test_scheduler_status_marks_daily_plan_due_without_history(tmp_path: Path) -> None:

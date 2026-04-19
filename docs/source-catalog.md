@@ -49,6 +49,38 @@
 1. Address Lookup Service
 2. Lands Department Location Search / Geocoding 类服务
 
+### 2.2A：预售 / 待抽签 / 新盘前哨源
+
+用途：
+
+- 提前发现未来 `1-3 年` 可能进入销售期的新盘
+- 在 `SRPE` 正式出现之前，先建立 `development watch` 候选池
+- 追踪“准备开价 / 开放示位 / 收票 / 抽签 / 首轮销售”这些时效性更强的节点
+
+特点：
+
+- `SRPE` 只能覆盖已经进入《一手住宅物业销售条例》销售文件链路的项目
+- 对“快将推售”或“刚获预售但未正式上载完整销售文件”的项目，往往不够早
+- 需要官方与商业信号交叉验证，而不是只信单一站点
+
+建议优先接入：
+
+1. Lands Department `pre-sale consent` 月报 / 季报
+2. Housing Bureau `Private Housing Supply in the Primary Market`
+3. SRPA / SRPE 中 vendor-designated website 入口
+4. 开发商项目官网或项目 microsite
+5. 商业源的一手快讯 / 新盘时间表页
+
+系统定位：
+
+- 这类 source 先服务 `development discovery`
+- 不直接当作 listing 真相源
+- 更适合产出：
+  - `launch_watch`
+  - `expected_launch_window`
+  - `official_site_url`
+  - `watch_reason`
+
 ### 2.3 C 类：商业 listing 源
 
 用途：
@@ -136,8 +168,9 @@ source:
 
 1. 第二个商业 listing 源
    当前锁定为利嘉阁
-2. 成交/统计类官方源
-3. 图片补齐和文档抽取增强
+2. 预售 / 待抽签 / 新盘前哨源
+3. 成交/统计类官方源
+4. 图片补齐和文档抽取增强
 
 ### Phase 3
 

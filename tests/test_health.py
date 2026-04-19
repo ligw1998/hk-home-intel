@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from hk_home_intel_api.main import create_app
 from hk_home_intel_domain.enums import (
+    DocumentType,
     JobRunStatus,
     ListingSegment,
     ListingStatus,
@@ -14,17 +15,21 @@ from hk_home_intel_domain.enums import (
     PriceEventType,
     SnapshotKind,
     SourceConfidence,
+    TransactionType,
     WatchlistStage,
 )
 from hk_home_intel_domain.ingestion import backfill_development_geography
 from hk_home_intel_domain.models import (
     CommercialSearchMonitor,
     Development,
+    Document,
+    LaunchWatchProject,
     Listing,
     PriceEvent,
     RefreshJobRun,
     SearchPreset,
     SourceSnapshot,
+    Transaction,
     WatchlistItem,
 )
 from hk_home_intel_shared.db import get_engine, get_session_factory, reset_db_caches
@@ -401,6 +406,25 @@ def test_development_detail_exposes_market_snapshot(isolated_app: TestClient) ->
                 event_at=datetime(2026, 4, 14, 10, 30),
             )
         )
+        session.add(
+            Document(
+                development_id=development.id,
+                source="srpe",
+                source_doc_id="SNAP-DOC-1",
+                source_url="https://www.srpe.gov.hk/example-doc",
+                doc_type=DocumentType.BROCHURE,
+                title="快照樓書",
+            )
+        )
+        session.add(
+            Transaction(
+                development_id=development.id,
+                source="ricacorp",
+                source_record_id="SNAP-TXN-1",
+                source_url="https://www.ricacorp.com/example-txn",
+                transaction_type=TransactionType.SECONDARY,
+            )
+        )
         session.commit()
         development_id = development.id
 
@@ -413,6 +437,11 @@ def test_development_detail_exposes_market_snapshot(isolated_app: TestClient) ->
     assert payload["active_listing_bedroom_mix"] == {"2": 1}
     assert payload["active_listing_source_counts"] == {"centanet": 1}
     assert payload["latest_listing_event_at"] == "2026-04-14T10:30:00"
+    coverage = {item["source"]: item for item in payload["source_coverage"]}
+    assert coverage["centanet"]["has_development_record"] is True
+    assert coverage["centanet"]["active_listing_count"] == 1
+    assert coverage["srpe"]["document_count"] == 1
+    assert coverage["ricacorp"]["transaction_count"] == 1
 
 
 def test_development_price_history_endpoint_returns_grouped_points(isolated_app: TestClient) -> None:
@@ -810,6 +839,46 @@ def test_watchlist_includes_listing_market_snapshot(isolated_app: TestClient) ->
     assert payload[0]["recent_listing_event_count_7d"] == 1
     assert payload[0]["recent_price_move_count_7d"] == 1
     assert payload[0]["recent_status_move_count_7d"] == 0
+
+
+def test_launch_watch_endpoint_returns_curated_projects(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        development = Development(
+            source="srpe",
+            source_external_id="launch-dev-1",
+            name_zh="啟德海灣第2期",
+            district="Kai Tak",
+            region="Kowloon",
+            listing_segment=ListingSegment.FIRST_HAND_REMAINING,
+            source_confidence=SourceConfidence.HIGH,
+        )
+        session.add(development)
+        session.flush()
+        session.add(
+            LaunchWatchProject(
+                source="centanet_news",
+                project_name="啟德海灣第2期",
+                project_name_en="KT Marina Phase 2",
+                district="Kai Tak",
+                region="Kowloon",
+                expected_launch_window="near-term",
+                launch_stage="launch_watch",
+                source_url="https://example.com/launch-news",
+                linked_development_id=development.id,
+                is_active=True,
+                tags_json=["primary-market"],
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/launch-watch")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["project_name"] == "啟德海灣第2期"
+    assert payload["items"][0]["linked_development_name"] == "啟德海灣第2期"
+    assert payload["items"][0]["launch_stage"] == "launch_watch"
 
 
 def test_search_preset_crud(isolated_app: TestClient) -> None:

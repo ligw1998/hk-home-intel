@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import httpx
+import subprocess
 
 from hk_home_intel_connectors.srpe import SRPEAdapter
 from hk_home_intel_domain.enums import DocumentType
@@ -154,3 +155,34 @@ def test_fetch_text_falls_back_to_curl_on_httpx_error(monkeypatch) -> None:
     from hk_home_intel_connectors.http import fetch_text
 
     assert fetch_text("https://example.com") == "<html>ok</html>"
+
+
+def test_fetch_text_retries_curl_timeout_once(monkeypatch) -> None:
+    class FailingClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url: str):
+            raise httpx.ConnectError("ssl eof")
+
+    calls = {"count": 0}
+
+    class CurlResult:
+        stdout = "<html>ok</html>"
+
+    def fake_run(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise subprocess.CalledProcessError(returncode=28, cmd=args[0])
+        return CurlResult()
+
+    monkeypatch.setattr("hk_home_intel_connectors.http.create_client", lambda **kwargs: FailingClient())
+    monkeypatch.setattr("hk_home_intel_connectors.http.subprocess.run", fake_run)
+
+    from hk_home_intel_connectors.http import fetch_text
+
+    assert fetch_text("https://example.com", timeout=20.0) == "<html>ok</html>"
+    assert calls["count"] == 2

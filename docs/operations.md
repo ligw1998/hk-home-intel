@@ -113,6 +113,44 @@ conda run -n py311 hhi-worker backfill-development-geography
      - 房型优先：`2房 > 3房 > 1房 > 开放式`
      - 户型面积：`400-750 sqft`（约 `37-70 sqm`）
 
+### Upcoming New Launch Watch
+
+如果目标从“当前盘面”扩展到“未来 `1-3 年` 值得提前留意的新盘 / 待抽签项目”，建议单独维护一条 `launch-watch` 主线，而不要把它混进普通二手 listing refresh。
+
+原因：
+
+- `SRPE` 更适合“已经进入销售文件阶段”的一手项目
+- 真正临近推售的盘，往往会先在：
+  - `Lands Department` 预售同意书统计
+  - 开发商官网 / 项目 microsite
+  - 商业源一手快讯 / 新盘时间表
+ 里出现
+
+建议顺序：
+
+1. 先用官方 `Lands Department pre-sale consent` 与 `Housing Bureau` 统计建立未来供应池
+2. 再给重点项目补 `official_site_url`
+3. 再用商业源确认：
+   - 是否开始开放示位
+   - 是否开始收票 / 抽签
+   - 是否进入首轮销售
+4. 只有进入 `launch-watch` 高优先级的盘，才补更密集的日常追踪
+
+如果先用人工整理的公开信号做第一批候选，可以直接同步：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-config --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-config
+```
+
+默认配置文件：
+
+- `configs/launch_watch_projects.toml`
+
+查看当前候选池：
+
+- `GET /api/v1/launch-watch`
+
 建议的 monitor 扩量顺序：
 
 1. 先增加官方 `SRPE` development 覆盖，用来补新盘 / 一手余货底座

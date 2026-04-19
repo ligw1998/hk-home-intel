@@ -159,6 +159,21 @@ conda run -n py311 hhi-worker import-ricacorp-search --url 'https://www.ricacorp
 
 当前 Ricacorp 先接的是搜索结果页 parser，能把 `development / listing / price_event` 写入本地；detail enrichment 不是这一轮的重点。
 
+如果你想把“未来 `1-3 年` 值得跟踪的新盘 / 待抽签项目”先独立放进系统，而不等它们先变成完整 development 或 listing，也可以同步一份 `launch-watch` 配置：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-config --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-config
+```
+
+默认读取：
+
+- `configs/launch_watch_projects.toml`
+
+对应 API：
+
+- `GET /api/v1/launch-watch`
+
 如果你想在当前阶段直接并排比较多个 development，可打开：
 
 ```text

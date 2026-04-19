@@ -247,6 +247,35 @@ class WatchlistItem(TimestampMixin, Base):
     )
 
 
+class LaunchWatchProject(TimestampMixin, Base):
+    __tablename__ = "launch_watch_project"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_project_id: Mapped[str | None] = mapped_column(String(255))
+    project_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_name_en: Mapped[str | None] = mapped_column(String(255))
+    district: Mapped[str | None] = mapped_column(String(120))
+    region: Mapped[str | None] = mapped_column(String(120))
+    expected_launch_window: Mapped[str | None] = mapped_column(String(120))
+    launch_stage: Mapped[str] = mapped_column(String(80), nullable=False, default="watching")
+    official_site_url: Mapped[str | None] = mapped_column(String(1000))
+    source_url: Mapped[str | None] = mapped_column(String(1000))
+    srpe_url: Mapped[str | None] = mapped_column(String(1000))
+    linked_development_id: Mapped[str | None] = mapped_column(ForeignKey("development.id", ondelete="SET NULL"))
+    note: Mapped[str | None] = mapped_column(Text)
+    tags_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+
+    linked_development: Mapped[Development | None] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("source", "project_name", name="uq_launch_watch_source_project_name"),
+        Index("ix_launch_watch_stage_active", "launch_stage", "is_active"),
+        Index("ix_launch_watch_region_district", "region", "district"),
+    )
+
+
 class RefreshJobRun(Base):
     __tablename__ = "refresh_job_run"
 

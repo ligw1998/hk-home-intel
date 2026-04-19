@@ -12,6 +12,16 @@ from hk_home_intel_shared.db import get_db_session
 router = APIRouter(prefix="/developments", tags=["developments"])
 
 
+class DevelopmentSourceCoverage(BaseModel):
+    source: str
+    source_url: str | None
+    has_development_record: bool
+    active_listing_count: int
+    document_count: int
+    transaction_count: int
+    latest_listing_event_at: str | None
+
+
 class DevelopmentSummary(BaseModel):
     id: str
     source_url: str | None
@@ -39,6 +49,7 @@ class DevelopmentSummary(BaseModel):
     active_listing_saleable_area_values: list[float]
     active_listing_bedroom_mix: dict[str, int]
     active_listing_source_counts: dict[str, int]
+    source_coverage: list["DevelopmentSourceCoverage"]
     latest_listing_event_at: str | None
 
 
@@ -150,13 +161,34 @@ def _serialize_development(
     item: Development,
     preferred_language: str,
     listing_metrics: dict[str, dict[str, object]] | None = None,
+    source_coverage_metrics: dict[str, list[dict[str, object]]] | None = None,
 ) -> DevelopmentSummary:
     name_translations = item.name_translations_json or {}
     metrics = (listing_metrics or {}).get(item.id, {})
+    source_coverage = [
+        DevelopmentSourceCoverage(
+            source=str(coverage["source"]),
+            source_url=str(coverage["source_url"]) if coverage.get("source_url") is not None else None,
+            has_development_record=bool(coverage.get("has_development_record", False)),
+            active_listing_count=int(coverage.get("active_listing_count", 0)),
+            document_count=int(coverage.get("document_count", 0)),
+            transaction_count=int(coverage.get("transaction_count", 0)),
+            latest_listing_event_at=(
+                coverage["latest_listing_event_at"].isoformat()
+                if coverage.get("latest_listing_event_at") is not None
+                else None
+            ),
+        )
+        for coverage in (source_coverage_metrics or {}).get(item.id, [])
+    ]
     available_sources = sorted(
         {
             source
-            for source in [item.source, *dict(metrics.get("active_listing_source_counts", {})).keys()]
+            for source in [
+                item.source,
+                *dict(metrics.get("active_listing_source_counts", {})).keys(),
+                *(coverage.source for coverage in source_coverage),
+            ]
             if source
         }
     )
@@ -218,6 +250,7 @@ def _serialize_development(
         ],
         active_listing_bedroom_mix=dict(metrics.get("active_listing_bedroom_mix", {})),
         active_listing_source_counts=dict(metrics.get("active_listing_source_counts", {})),
+        source_coverage=source_coverage,
         latest_listing_event_at=(
             metrics["latest_listing_event_at"].isoformat()
             if metrics.get("latest_listing_event_at") is not None
@@ -390,6 +423,100 @@ def _build_listing_metrics(session: Session, development_ids: list[str]) -> dict
     for development_id, latest_event_at in latest_event_rows:
         metrics[development_id]["latest_listing_event_at"] = latest_event_at
     return metrics
+
+
+def _build_source_coverage_metrics(
+    session: Session,
+    developments: list[Development],
+    listing_metrics: dict[str, dict[str, object]] | None = None,
+) -> dict[str, list[dict[str, object]]]:
+    development_ids = [item.id for item in developments]
+    if not development_ids:
+        return {}
+
+    metrics = listing_metrics or _build_listing_metrics(session, development_ids)
+    coverage_by_development: dict[str, dict[str, dict[str, object]]] = {
+        item.id: {} for item in developments
+    }
+
+    def ensure_source_bucket(development_id: str, source: str) -> dict[str, object]:
+        item = coverage_by_development[development_id].setdefault(
+            source,
+            {
+                "source": source,
+                "source_url": None,
+                "has_development_record": False,
+                "active_listing_count": 0,
+                "document_count": 0,
+                "transaction_count": 0,
+                "latest_listing_event_at": None,
+            },
+        )
+        return item
+
+    for development in developments:
+        if development.source:
+            bucket = ensure_source_bucket(development.id, development.source)
+            bucket["has_development_record"] = True
+            if development.source_url and not bucket["source_url"]:
+                bucket["source_url"] = development.source_url
+
+    for development in developments:
+        development_metrics = metrics.get(development.id, {})
+        source_counts = dict(development_metrics.get("active_listing_source_counts", {}))
+        source_urls = dict(development_metrics.get("active_listing_source_urls", {}))
+        latest_event_at = development_metrics.get("latest_listing_event_at")
+        for source, count in source_counts.items():
+            bucket = ensure_source_bucket(development.id, source)
+            bucket["active_listing_count"] = int(count)
+            if source_urls.get(source) and not bucket["source_url"]:
+                bucket["source_url"] = str(source_urls[source])
+            if latest_event_at is not None:
+                bucket["latest_listing_event_at"] = latest_event_at
+
+    document_rows = session.scalars(
+        select(Document).where(Document.development_id.in_(development_ids))
+    ).all()
+    for row in document_rows:
+        bucket = ensure_source_bucket(row.development_id, row.source)
+        bucket["document_count"] = int(bucket["document_count"]) + 1
+        if row.source_url and not bucket["source_url"]:
+            bucket["source_url"] = row.source_url
+
+    transaction_rows = session.scalars(
+        select(Transaction).where(Transaction.development_id.in_(development_ids))
+    ).all()
+    for row in transaction_rows:
+        bucket = ensure_source_bucket(row.development_id, row.source)
+        bucket["transaction_count"] = int(bucket["transaction_count"]) + 1
+        if row.source_url and not bucket["source_url"]:
+            bucket["source_url"] = row.source_url
+
+    latest_event_rows = session.execute(
+        select(PriceEvent.development_id, PriceEvent.source, func.max(PriceEvent.event_at))
+        .where(PriceEvent.development_id.in_(development_ids))
+        .group_by(PriceEvent.development_id, PriceEvent.source)
+    ).all()
+    for development_id, source, latest_event_at in latest_event_rows:
+        if source is None:
+            continue
+        bucket = ensure_source_bucket(development_id, source)
+        bucket["latest_listing_event_at"] = latest_event_at
+
+    result: dict[str, list[dict[str, object]]] = {}
+    for development in developments:
+        items = list(coverage_by_development[development.id].values())
+        items.sort(
+            key=lambda item: (
+                0 if item["has_development_record"] else 1,
+                -int(item["active_listing_count"]),
+                -int(item["document_count"]),
+                -int(item["transaction_count"]),
+                str(item["source"]),
+            )
+        )
+        result[development.id] = items
+    return result
 
 
 def _matches_preference_filters(
@@ -571,8 +698,9 @@ def list_developments(
     filtered_stmt = _apply_filters(base_stmt, district, region, parsed_listing_segments, has_coordinates)
     developments = session.scalars(filtered_stmt.order_by(Development.updated_at.desc())).all()
     listing_metrics = _build_listing_metrics(session, [item.id for item in developments])
+    source_coverage_metrics = _build_source_coverage_metrics(session, developments, listing_metrics)
     serialized = [
-        _serialize_development(item, lang, listing_metrics)
+        _serialize_development(item, lang, listing_metrics, source_coverage_metrics)
         for item in developments
     ]
     filtered_serialized = [
@@ -632,6 +760,7 @@ def get_development(
         development,
         lang,
         _build_listing_metrics(session, [development.id]),
+        _build_source_coverage_metrics(session, [development]),
     )
     source_links = list(summary.source_links)
     seen_sources = {item["source"] for item in source_links}
