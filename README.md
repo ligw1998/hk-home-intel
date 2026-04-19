@@ -13,6 +13,7 @@
 - [开发路线图](docs/roadmap.md)
 - [本地开发](docs/local-development.md)
 - [运行手册](docs/operations.md)
+- [命令速查](docs/command-cheatsheet.md)
 
 ## 产品目标
 

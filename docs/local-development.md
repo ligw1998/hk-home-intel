@@ -9,7 +9,31 @@ Phase 0 默认采用轻量本地开发模式，不依赖 Docker。
 - Database: 默认 SQLite
 - Docker: 可选，仅在后续需要 PostgreSQL/PostGIS 时引入
 
-## 2. Python 依赖安装
+## 2. Fresh Clone Setup
+
+如果你是在另一台电脑上从零开始：
+
+```bash
+git clone <your-repo-url>
+cd hk-home-intel
+```
+
+建议先确认本机有这些基础工具：
+
+- `conda` 或 `miniconda`
+- Python `3.11`
+- Node.js `20+`
+- `npm`
+
+### 2.1 创建 Python 环境
+
+如果新机器上还没有 `py311`：
+
+```bash
+conda create -n py311 python=3.11 -y
+```
+
+### 2.2 安装 Python 依赖
 
 在仓库根目录执行：
 
@@ -17,13 +41,99 @@ Phase 0 默认采用轻量本地开发模式，不依赖 Docker。
 conda run -n py311 python -m pip install --no-build-isolation -e ".[dev]"
 ```
 
-## 3. Web 依赖安装
+### 2.3 安装 Web 依赖
 
 ```bash
 npm install
 ```
 
-## 4. 环境变量
+### 2.4 环境变量
+
+复制环境模板：
+
+```bash
+cp .env.example .env
+```
+
+默认这套仓库可以直接用本地 SQLite 跑起来，不需要先配 PostgreSQL。
+
+### 2.5 初始化数据库
+
+先应用 migration：
+
+```bash
+conda run -n py311 alembic upgrade head
+```
+
+### 2.6 启动 API 和 Web
+
+启动 API：
+
+```bash
+conda run -n py311 hhi-api
+```
+
+另开一个终端启动前端：
+
+```bash
+npm run dev:web
+```
+
+默认地址：
+
+- API: `http://127.0.0.1:8000`
+- Web: `http://127.0.0.1:3000`
+
+### 2.7 运行前最小检查
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8000/api/v1/health
+```
+
+空库时 `developments` 正常会是空列表：
+
+```bash
+curl http://127.0.0.1:8000/api/v1/developments
+```
+
+### 2.8 First Data Load
+
+如果你希望新机器 clone 完就开始导入真实数据，推荐的首轮顺序：
+
+```bash
+conda run -n py311 hhi-worker import-srpe-index --lang en --limit 50 --offset 0
+conda run -n py311 hhi-worker sync-launch-watch-config
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
+conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source centanet --limit 20 --validate --create-monitors
+conda run -n py311 hhi-worker set-commercial-monitors-active --source centanet --auto-discovered
+conda run -n py311 hhi-worker run-commercial-search-monitors --source centanet --limit-override 20
+```
+
+如果你还要补第二商业源，再继续：
+
+```bash
+conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source ricacorp --limit 20 --validate --create-monitors
+conda run -n py311 hhi-worker set-commercial-monitors-active --source ricacorp --auto-discovered
+conda run -n py311 hhi-worker run-commercial-search-monitors --source ricacorp --limit-override 20
+```
+
+## 3. Python 依赖安装
+
+在仓库根目录执行：
+
+```bash
+conda run -n py311 python -m pip install --no-build-isolation -e ".[dev]"
+```
+
+## 4. Web 依赖安装
+
+```bash
+npm install
+```
+
+## 5. 环境变量
 
 复制环境模板：
 
@@ -49,7 +159,7 @@ HHI_CORS_ALLOW_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 HHI_HTTP_TRUST_ENV=false
 ```
 
-## 5. 启动 API
+## 6. 启动 API
 
 先应用 migration：
 
