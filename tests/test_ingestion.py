@@ -154,6 +154,7 @@ def test_import_srpe_live_index_maps_official_payload(tmp_path: Path, monkeypatc
     assert payload["total"] == 1
     assert payload["items"][0]["display_name"] == "瑜意"
     assert payload["items"][0]["district"] == "TSIM SHA TSUI"
+    assert payload["items"][0]["completion_year"] == 2026
 
     detail = client.get(f"/api/v1/developments/{payload['items'][0]['id']}?lang=en")
     assert detail.status_code == 200
@@ -313,6 +314,7 @@ def test_import_srpe_live_index_with_details_adds_official_documents(tmp_path: P
     payload = response.json()
     assert payload["total"] == 1
     assert payload["items"][0]["district"] == "TSIM SHA TSUI"
+    assert payload["items"][0]["completion_year"] == 2026
 
     detail = client.get(f"/api/v1/developments/{payload['items'][0]['id']}?lang=en")
     assert detail.status_code == 200

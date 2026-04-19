@@ -520,6 +520,9 @@ class SRPEAdapter(SourceAdapter):
         else:
             tags.append("sales_inactive")
             listing_segment = ListingSegment.MIXED.value
+        completion_year = self._infer_completion_year_from_document_dates(
+            (item.get("brochure") or {}).get("dateOfPrint"),
+        )
 
         return {
             "source": self.source_name,
@@ -543,7 +546,7 @@ class SRPEAdapter(SourceAdapter):
             "lat": self._parse_float(item.get("latitude")),
             "lng": self._parse_float(item.get("longtitude")),
             "developers": [],
-            "completion_year": None,
+            "completion_year": completion_year,
             "listing_segment": listing_segment,
             "tags": tags,
             "source_confidence": SourceConfidence.HIGH.value,
@@ -600,6 +603,14 @@ class SRPEAdapter(SourceAdapter):
             tags.append("sales_suspended")
         if dev.get("dateCompleteSales"):
             tags.append("sales_completed")
+        completion_year = self._infer_completion_year_from_document_dates(
+            *[
+                brochure.get("dateOfPrint")
+                for brochure in (result.get("brochureList") or ([result["brochure"]] if result.get("brochure") else []))
+            ],
+            *[price.get("dateOfPrinting") for price in (result.get("prices") or [])],
+            *[arrangement.get("dateOfPrinting") for arrangement in (result.get("salesArrangements") or [])],
+        )
 
         return {
             "source": self.source_name,
@@ -622,7 +633,7 @@ class SRPEAdapter(SourceAdapter):
             "region": broad_district.get("broadDistrictNameEng"),
             "lat": self._parse_float(dev.get("latitude")),
             "lng": self._parse_float(dev.get("longtitude")),
-            "completion_year": None,
+            "completion_year": completion_year,
             "listing_segment": listing_segment,
             "tags": tags,
             "source_confidence": SourceConfidence.HIGH.value,
@@ -766,6 +777,23 @@ class SRPEAdapter(SourceAdapter):
             "part_no": file_record.get("partNo"),
             "full_version_ind": file_record.get("fullVersionInd"),
         }
+
+    def _infer_completion_year_from_document_dates(self, *raw_values: str | None) -> int | None:
+        years = [year for year in (self._extract_year(raw_value) for raw_value in raw_values) if year is not None]
+        if not years:
+            return None
+        return min(years)
+
+    def _extract_year(self, raw_value: str | None) -> int | None:
+        if not raw_value:
+            return None
+        try:
+            return datetime.fromisoformat(str(raw_value).replace("Z", "+00:00")).year
+        except ValueError:
+            match = re.search(r"\b(19|20)\d{2}\b", str(raw_value))
+            if match:
+                return int(match.group(0))
+        return None
 
     def _merge_payload_values(
         self,
