@@ -68,7 +68,7 @@ curl http://127.0.0.1:8000/api/v1/health
 如果你现在想做一轮“围绕偏好盘扩量”的标准流程，直接按这个顺序：
 
 ```bash
-conda run -n py311 hhi-worker import-srpe-index --lang en --limit 100 --offset 0
+conda run -n py311 hhi-worker import-srpe-index --lang en --limit 1000 --offset 0
 conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source centanet --limit 20 --validate --create-monitors
 conda run -n py311 hhi-worker set-commercial-monitors-active --source centanet --auto-discovered
 conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source ricacorp --limit 20 --validate --create-monitors
@@ -91,7 +91,7 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-issued
 最常用：
 
 ```bash
-conda run -n py311 hhi-worker import-srpe-index --lang en --limit 100 --offset 0
+conda run -n py311 hhi-worker import-srpe-index --lang en --limit 1000 --offset 0
 ```
 
 作用：
