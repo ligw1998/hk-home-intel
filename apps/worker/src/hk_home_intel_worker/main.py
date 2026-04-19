@@ -25,7 +25,11 @@ from hk_home_intel_domain.commercial_discovery import (
     serialize_commercial_discovery_summary,
     set_commercial_monitors_active_state,
 )
-from hk_home_intel_domain.launch_watch import sync_launch_watch_config
+from hk_home_intel_domain.launch_watch import (
+    sync_launch_watch_config,
+    sync_launch_watch_landsd_issued,
+    sync_launch_watch_landsd_pending_approval,
+)
 from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
 from hk_home_intel_domain.refresh import (
     execute_commercial_search_monitor_batch,
@@ -111,6 +115,9 @@ def main() -> None:
         return
     if args.command == "sync-launch-watch-config":
         run_sync_launch_watch_config(args.path, args.dry_run)
+        return
+    if args.command == "sync-launch-watch-official":
+        run_sync_launch_watch_official(args.source, args.dry_run)
         return
     if args.command == "discover-commercial-monitor-candidates":
         run_discover_commercial_monitor_candidates(
@@ -257,6 +264,10 @@ def build_parser() -> argparse.ArgumentParser:
     launch_watch_sync_parser = subparsers.add_parser("sync-launch-watch-config")
     launch_watch_sync_parser.add_argument("--path", dest="path", default="configs/launch_watch_projects.toml")
     launch_watch_sync_parser.add_argument("--dry-run", dest="dry_run", action="store_true")
+
+    launch_watch_official_parser = subparsers.add_parser("sync-launch-watch-official")
+    launch_watch_official_parser.add_argument("--source", dest="source", default="landsd-pending")
+    launch_watch_official_parser.add_argument("--dry-run", dest="dry_run", action="store_true")
 
     discovery_parser = subparsers.add_parser("discover-commercial-monitor-candidates")
     discovery_parser.add_argument("--source", dest="source", default="centanet")
@@ -698,6 +709,35 @@ def run_sync_launch_watch_config(path: str, dry_run: bool) -> None:
         json.dumps(
             {
                 "path": summary.path,
+                "processed": summary.processed,
+                "created": summary.created,
+                "updated": summary.updated,
+                "unchanged": summary.unchanged,
+                "dry_run": summary.dry_run,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+def run_sync_launch_watch_official(source: str, dry_run: bool) -> None:
+    ensure_runtime_dirs()
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        if source == "landsd-pending":
+            summary = sync_launch_watch_landsd_pending_approval(session, dry_run=dry_run)
+        elif source == "landsd-issued":
+            summary = sync_launch_watch_landsd_issued(session, dry_run=dry_run)
+        else:
+            raise ValueError(f"Unsupported launch-watch official source: {source}")
+
+    print(
+        json.dumps(
+            {
+                "source": summary.source,
+                "report_url": summary.report_url,
+                "pdf_url": summary.pdf_url,
                 "processed": summary.processed,
                 "created": summary.created,
                 "updated": summary.updated,

@@ -26,10 +26,30 @@ DISTRICT_CENTROIDS: dict[str, tuple[float, float]] = {
     _normalize_geo_key("Yuen Long"): (22.4445, 114.0222),
 }
 
+REGION_CENTROIDS: dict[str, tuple[float, float]] = {
+    _normalize_geo_key("Hong Kong"): (22.2819, 114.1589),
+    _normalize_geo_key("Hong Kong Island"): (22.2819, 114.1589),
+    _normalize_geo_key("Kowloon"): (22.3193, 114.1694),
+    _normalize_geo_key("New Territories"): (22.3916, 114.1170),
+    _normalize_geo_key("Tuen Mun and Yuen Long West"): (22.4180, 114.0010),
+}
+
 ADDRESS_CENTROIDS: dict[str, tuple[float, float]] = {
     _normalize_geo_key("North Point, Hong Kong"): (22.2918, 114.2007),
     _normalize_geo_key("Kai Tak, Kowloon"): (22.3199, 114.2131),
 }
+
+ADDRESS_FRAGMENT_CENTROIDS: tuple[tuple[str, tuple[float, float]], ...] = (
+    ("Kowloon Tong", (22.3369, 114.1793)),
+    ("Wong Chuk Hang", (22.2477, 114.1696)),
+    ("Tseung Kwan O", (22.3073, 114.2592)),
+    ("Tai Po", (22.4509, 114.1688)),
+    ("Kai Tak", (22.3199, 114.2131)),
+    ("Chai Wan", (22.2647, 114.2361)),
+    ("Lohas Park", (22.2951, 114.2682)),
+    ("Broadcast Drive", (22.3347, 114.1834)),
+    ("Hoi Ying Road", (22.4302, 114.2452)),
+)
 
 
 def district_centroid(district: str | None) -> tuple[float | None, float | None]:
@@ -44,7 +64,21 @@ def district_centroid(district: str | None) -> tuple[float | None, float | None]
 def address_centroid(address: str | None) -> tuple[float | None, float | None]:
     if not address:
         return None, None
-    coords = ADDRESS_CENTROIDS.get(_normalize_geo_key(address))
+    normalized = _normalize_geo_key(address)
+    coords = ADDRESS_CENTROIDS.get(normalized)
+    if not coords:
+        lowered = address.lower()
+        for fragment, fragment_coords in ADDRESS_FRAGMENT_CENTROIDS:
+            if fragment.lower() in lowered:
+                return fragment_coords
+        return None, None
+    return coords
+
+
+def region_centroid(region: str | None) -> tuple[float | None, float | None]:
+    if not region:
+        return None, None
+    coords = REGION_CENTROIDS.get(_normalize_geo_key(region))
     if not coords:
         return None, None
     return coords
@@ -54,11 +88,15 @@ def infer_coordinates(
     *,
     address: str | None,
     district: str | None,
+    region: str | None = None,
 ) -> tuple[float | None, float | None]:
     lat, lng = address_centroid(address)
     if lat is not None and lng is not None:
         return lat, lng
-    return district_centroid(district)
+    lat, lng = district_centroid(district)
+    if lat is not None and lng is not None:
+        return lat, lng
+    return region_centroid(region)
 
 
 def infer_region_from_coordinates(

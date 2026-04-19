@@ -13,7 +13,13 @@ from hk_home_intel_domain.commercial_discovery import (
     set_commercial_monitors_active_state,
 )
 from hk_home_intel_connectors.ricacorp import RicacorpAdapter
-from hk_home_intel_domain.launch_watch import sync_launch_watch_config
+from hk_home_intel_domain.launch_watch import (
+    parse_landsd_issued_pdf_text,
+    parse_landsd_pending_approval_pdf_text,
+    sync_launch_watch_config,
+    sync_launch_watch_landsd_issued,
+    sync_launch_watch_landsd_pending_approval,
+)
 from hk_home_intel_domain.enums import JobRunStatus
 from hk_home_intel_domain.models import CommercialSearchMonitor, Development, LaunchWatchProject, RefreshJobRun
 from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
@@ -85,6 +91,328 @@ source_url = "https://example.com/watch"
     assert summary.processed == 1
     assert summary.created == 1
     assert created == 1
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_parse_landsd_pending_approval_pdf_text_extracts_project_rows() -> None:
+    sample_text = """
+Particulars of applications for Presale Consent and Consent to Assign pending approval
+as at 31/03/2026
+1
+Lands Department
+Lot No.
+Address
+Development
+Name
+Vendor
+CWIL 178
+No. 99 Sheung
+On Street,
+Chai Wan,
+Hong Kong
+(Provisional)
+Phase 2 of
+THE
+HEADLAND
+RESIDENCES
+Joyful Sincere
+Limited
+28/02/2027 258 --
+Lot 385 RP
+in DD 352
+& Exts
+Pending Phase 19-2A of
+Discovery Bay
+City
+Hong Kong
+Resort
+Company
+Limited
+31/07/2027 170 --
+    """.strip()
+
+    rows = parse_landsd_pending_approval_pdf_text(sample_text)
+
+    assert len(rows) == 2
+    assert rows[0]["project_name"] == "Phase 2 of THE HEADLAND RESIDENCES"
+    assert rows[0]["unit_count"] == 258
+    assert rows[0]["estimated_completion_date"].isoformat() == "2027-02-28"
+    assert rows[1]["project_name"] == "Pending Phase 19-2A of Discovery Bay City"
+    assert rows[1]["unit_count"] == 170
+
+
+def test_parse_landsd_issued_pdf_text_extracts_presale_and_assign_rows() -> None:
+    sample_text = """
+Particulars of Presale Consent and Consent to Assign issued
+for the period from 01/03/2026 to 31/03/2026
+Presale Consent for Residential Development
+NKIL 6638
+No. 79 Broadcast Drive,
+Kowloon Tong,
+Kowloon
+Pending
+Gainful Limited
+(a) 19/03/2026
+(b) 19/03/2026
+(c) 30/09/2026
+195 46 --
+Presale Consent for Non-Residential Development
+NIL
+Consent to Assign for Residential / Non-Residential Development
+AIL 467
+No. 11 Heung Yip Road,
+Hong Kong
+(Provisional)
+THE SOUTHSIDE
+(Phase 3C – BLUE COAST II)
+MTR Corporation Limited
+(a) 23/03/2026
+(b) 23/03/2026
+(c) 558
+(d) --
+(e) --
+(f) --
+--
+TKOTL 70 RP
+No. 1 Lohas Park Road,
+Tseung Kwan O,
+New Territories
+Phase XIIC of LOHAS Park
+– GRAND SEASONS
+MTR Corporation Limited
+(a) 25/03/2026
+(b) 25/03/2026
+(c) 650
+(d) --
+(e) --
+(f) --
+--
+    """.strip()
+
+    rows = parse_landsd_issued_pdf_text(sample_text)
+
+    assert len(rows) == 3
+    assert rows[0]["source"] == "landsd_presale_issued"
+    assert rows[0]["project_name"].startswith("Pending")
+    assert rows[0]["unit_count"] == 46
+    assert rows[1]["source"] == "landsd_assign_issued"
+    assert rows[1]["project_name"] == "THE SOUTHSIDE (Phase 3C – BLUE COAST II)"
+    assert rows[1]["unit_count"] == 558
+    assert rows[2]["project_name"] == "Phase XIIC of LOHAS Park – GRAND SEASONS"
+
+
+def test_sync_launch_watch_landsd_issued_creates_projects(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "launch-watch-issued.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        session.add_all(
+            [
+                Development(
+                    id="dev-blue-coast-2",
+                    source="srpe",
+                    source_external_id="10001",
+                    name_en="BLUE COAST II",
+                    aliases_json=["THE SOUTHSIDE (Phase 3C – BLUE COAST II)"],
+                    source_url="https://www.srpe.gov.hk/the-southside-blue-coast-2",
+                ),
+                Development(
+                    id="dev-grand-seasons",
+                    source="srpe",
+                    source_external_id="10002",
+                    name_en="GRAND SEASONS",
+                    aliases_json=["Phase XIIC of LOHAS Park – GRAND SEASONS"],
+                    source_url="https://www.srpe.gov.hk/grand-seasons",
+                ),
+            ]
+        )
+        session.commit()
+
+    index_html = """
+    <a href="/en/resources/land-info-stat/dev-control-compliance/consent/presale/202603.html">March 2026</a>
+    """.strip()
+    report_html = """
+    <a href="/doc/en/consent/monthly/t1_2603.pdf">Table 1</a>
+    """.strip()
+    pdf_text = """
+Particulars of Presale Consent and Consent to Assign issued
+for the period from 01/03/2026 to 31/03/2026
+Presale Consent for Residential Development
+NKIL 6638
+No. 79 Broadcast Drive,
+Kowloon Tong,
+Kowloon
+Pending
+Gainful Limited
+(a) 19/03/2026
+(b) 19/03/2026
+(c) 30/09/2026
+195 46 --
+Presale Consent for Non-Residential Development
+NIL
+Consent to Assign for Residential / Non-Residential Development
+AIL 467
+No. 11 Heung Yip Road,
+Hong Kong
+(Provisional)
+THE SOUTHSIDE
+(Phase 3C – BLUE COAST II)
+MTR Corporation Limited
+(a) 23/03/2026
+(b) 23/03/2026
+(c) 558
+(d) --
+(e) --
+(f) --
+--
+TKOTL 70 RP
+No. 1 Lohas Park Road,
+Tseung Kwan O,
+New Territories
+Phase XIIC of LOHAS Park
+– GRAND SEASONS
+MTR Corporation Limited
+(a) 25/03/2026
+(b) 25/03/2026
+(c) 650
+(d) --
+(e) --
+(f) --
+--
+    """.strip()
+
+    def fake_fetch_text(url: str, timeout: float = 20.0) -> str:
+        if url.endswith("presale.html"):
+            return index_html
+        if url.endswith("202603.html"):
+            return report_html
+        raise AssertionError(url)
+
+    monkeypatch.setattr("hk_home_intel_domain.launch_watch.fetch_text", fake_fetch_text)
+    monkeypatch.setattr("hk_home_intel_domain.launch_watch._extract_pdf_text_from_url", lambda url: pdf_text)
+    monkeypatch.setattr(
+        "hk_home_intel_domain.launch_watch.SRPEAdapter.fetch_selected_development_result",
+        lambda self, development_id, language="en": {
+            "dev": {
+                "website": {
+                    "10001": "www.bluecoast2.example",
+                    "10002": "www.grandseasons.example",
+                }.get(str(development_id))
+            }
+        },
+    )
+
+    with session_factory() as session:
+        summary = sync_launch_watch_landsd_issued(session, dry_run=False)
+        created = session.scalar(select(func.count()).select_from(LaunchWatchProject))
+        projects = session.scalars(select(LaunchWatchProject).order_by(LaunchWatchProject.project_name)).all()
+
+    assert summary.source == "landsd_issued"
+    assert summary.processed == 3
+    assert summary.created == 3
+    assert created == 3
+    assert any(project.source == "landsd_presale_issued" for project in projects)
+    assert any(project.linked_development_id == "dev-blue-coast-2" for project in projects)
+    assert any(project.linked_development_id == "dev-grand-seasons" for project in projects)
+    blue_coast = next(project for project in projects if project.linked_development_id == "dev-blue-coast-2")
+    grand_seasons = next(project for project in projects if project.linked_development_id == "dev-grand-seasons")
+    assert blue_coast.official_site_url == "https://www.bluecoast2.example"
+    assert blue_coast.srpe_url == "https://www.srpe.gov.hk/the-southside-blue-coast-2"
+    assert grand_seasons.official_site_url == "https://www.grandseasons.example"
+    assert grand_seasons.srpe_url == "https://www.srpe.gov.hk/grand-seasons"
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_sync_launch_watch_landsd_pending_approval_creates_projects(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "launch-watch-official.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        session.add(
+            Development(
+                id="dev-headland",
+                source="srpe",
+                source_external_id="10003",
+                name_zh="海德園",
+                name_en="THE HEADLAND RESIDENCES",
+                source_url="https://www.srpe.gov.hk/the-headland",
+            )
+        )
+        session.commit()
+
+    index_html = """
+    <a href="/en/resources/land-info-stat/dev-control-compliance/consent/presale/202603.html">March 2026</a>
+    """.strip()
+    report_html = """
+    <a href="/doc/en/consent/monthly/t2_2603.pdf">Table 2</a>
+    """.strip()
+    pdf_text = """
+Particulars of applications for Presale Consent and Consent to Assign pending approval
+as at 31/03/2026
+CWIL 178
+No. 99 Sheung On Street,
+Chai Wan,
+Hong Kong
+(Provisional)
+Phase 2 of THE HEADLAND RESIDENCES
+Joyful Sincere Limited
+28/02/2027 258 --
+    """.strip()
+
+    def fake_fetch_text(url: str, timeout: float = 20.0) -> str:
+        if url.endswith("presale.html"):
+            return index_html
+        if url.endswith("202603.html"):
+            return report_html
+        raise AssertionError(url)
+
+    monkeypatch.setattr("hk_home_intel_domain.launch_watch.fetch_text", fake_fetch_text)
+    monkeypatch.setattr("hk_home_intel_domain.launch_watch._extract_pdf_text_from_url", lambda url: pdf_text)
+    monkeypatch.setattr(
+        "hk_home_intel_domain.launch_watch.SRPEAdapter.fetch_selected_development_result",
+        lambda self, development_id, language="en": {
+            "dev": {
+                "website": "www.headland.example" if str(development_id) == "10003" else None,
+            }
+        },
+    )
+
+    with session_factory() as session:
+        summary = sync_launch_watch_landsd_pending_approval(session, dry_run=False)
+        created = session.scalar(select(func.count()).select_from(LaunchWatchProject))
+        project = session.scalar(select(LaunchWatchProject).limit(1))
+
+    assert summary.processed == 1
+    assert summary.created == 1
+    assert created == 1
+    assert project is not None
+    assert project.project_name == "Phase 2 of THE HEADLAND RESIDENCES"
+    assert project.linked_development_id == "dev-headland"
+    assert project.source == "landsd_presale_pending"
+    assert project.official_site_url == "https://www.headland.example"
+    assert project.srpe_url == "https://www.srpe.gov.hk/the-headland"
 
     engine.dispose()
     clear_settings_cache()
@@ -924,6 +1252,276 @@ def test_ricacorp_extract_estate_buy_list_url_can_fallback_to_server_state() -> 
     )
 
     assert buy_list_url == "https://www.ricacorp.com/zh-hk/property/list/buy/%E5%8F%88%E4%B8%80%E5%B1%85-bigest-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk"
+
+
+def test_discover_ricacorp_monitor_candidates_can_use_estate_index_state_buy_url(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-ricacorp-state.db'}")
+    Base.metadata.create_all(engine)
+    estate_list_html = """
+    <html>
+      <body>
+        <script id="serverApp-state" type="application/json">
+          {&q;alias&q;:&q;又一居-estate-九龍塘-hma-hk&q;,&q;locationText&q;:&q;又一居&q;,&q;zoneText&q;:&q;九龍塘&q;,&q;others&q;:[{&q;itemId&q;:&q;post.sales&q;,&q;count&q;:12}]}
+        </script>
+      </body>
+    </html>
+    """
+    buy_results_html = """
+    <html>
+      <body>
+        <rc-property-listing-item-desktop>
+          <a href="/zh-hk/property/detail/%E4%B9%9D%E9%BE%8D%E5%A1%98/%E5%8F%88%E4%B8%80%E5%B1%85-yy123-1-hk"></a>
+          <h3 class="address">又一居 2房</h3>
+          <div class="market-price-block"><div class="price-container">$950</div></div>
+          <span class="unit-price">$14,615/呎</span>
+          <span>實用 650 呎</span>
+          <span>物業編號 YY123</span>
+        </rc-property-listing-item-desktop>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_estate_list_html",
+        lambda self: estate_list_html,
+    )
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_search_results_html",
+        lambda self, url: buy_results_html,
+    )
+
+    with Session(engine) as session:
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="srpe-rica-state-001",
+                source_url="https://www.srpe.gov.hk/",
+                name_zh="又一居",
+                name_translations_json={"zh-Hant": "又一居", "zh-Hans": "又一居"},
+                aliases_json=["又一居"],
+                district="Kowloon Tong",
+                region="Kowloon",
+                listing_segment="second_hand",
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="ricacorp",
+            limit=5,
+            validate=True,
+            create_monitors=False,
+        )
+
+        assert summary.generated == 1
+        assert summary.validated == 1
+        assert summary.candidates[0].validated is True
+        assert summary.candidates[0].search_url.endswith("/property/list/buy/%E5%8F%88%E4%B8%80%E5%B1%85-bigest-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk")
+
+
+def test_discover_ricacorp_monitor_candidates_skips_unindexed_guess_urls(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-ricacorp-unindexed.db'}")
+    Base.metadata.create_all(engine)
+    estate_list_html = """
+    <html>
+      <body>
+        <a href="/zh-hk/property/estate/%E5%98%89%E4%BA%A8%E7%81%A3-estate-%E8%A5%BF%E7%81%A3%E6%B2%B3-hma-hk">
+          <span class="location-text">嘉亨灣</span>
+          <span class="zone-text">西灣河 | 筲箕灣 | 柴灣</span>
+        </a>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_estate_list_html",
+        lambda self: estate_list_html,
+    )
+
+    with Session(engine) as session:
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="srpe-rica-unindexed-001",
+                source_url="https://www.srpe.gov.hk/",
+                name_zh="又一居",
+                name_translations_json={"zh-Hant": "又一居", "zh-Hans": "又一居"},
+                aliases_json=["又一居"],
+                district="Kowloon Tong",
+                region="Kowloon",
+                listing_segment="second_hand",
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="ricacorp",
+            limit=5,
+            validate=False,
+            create_monitors=False,
+        )
+
+        assert summary.generated == 0
+        assert summary.validated == 0
+        assert summary.candidates == []
+
+
+def test_discover_ricacorp_monitor_candidates_dedupes_resolved_urls(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-ricacorp-dedupe.db'}")
+    Base.metadata.create_all(engine)
+    estate_list_html = """
+    <html>
+      <body>
+        <script id="serverApp-state" type="application/json">
+          {&q;alias&q;:&q;港島南岸-bigest-黃竹坑-hma-hk&q;,&q;locationText&q;:&q;港島南岸&q;,&q;zoneText&q;:&q;山頂 | 南區&q;,&q;others&q;:[{&q;itemId&q;:&q;post.sales&q;,&q;count&q;:28}]}
+        </script>
+      </body>
+    </html>
+    """
+    buy_results_html = """
+    <html>
+      <body>
+        <rc-property-listing-item-desktop>
+          <a href="/zh-hk/property/detail/%E9%BB%83%E7%AB%B9%E5%9D%91/%E6%B8%AF%E5%B3%B6%E5%8D%97%E5%B2%B8-aa123-1-hk"></a>
+          <h3 class="address">港島南岸 2房</h3>
+          <div class="market-price-block"><div class="price-container">$990</div></div>
+          <span class="unit-price">$28,863/呎</span>
+          <span>實用 343 呎</span>
+          <span>物業編號 AA123</span>
+        </rc-property-listing-item-desktop>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_estate_list_html",
+        lambda self: estate_list_html,
+    )
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_search_results_html",
+        lambda self, url: buy_results_html,
+    )
+
+    with Session(engine) as session:
+        session.add_all(
+            [
+                Development(
+                    source="srpe",
+                    source_external_id="srpe-rica-dedupe-001",
+                    source_url="https://www.srpe.gov.hk/",
+                    name_zh="港島南岸 - 3C",
+                    aliases_json=["港島南岸 - 3C"],
+                    district="ABERDEEN & AP LEI CHAU",
+                    region="HONG KONG",
+                    listing_segment="first_hand_remaining",
+                    source_confidence="high",
+                ),
+                Development(
+                    source="srpe",
+                    source_external_id="srpe-rica-dedupe-002",
+                    source_url="https://www.srpe.gov.hk/",
+                    name_zh="港島南岸 - 滶晨",
+                    aliases_json=["港島南岸 - 滶晨"],
+                    district="ABERDEEN & AP LEI CHAU",
+                    region="HONG KONG",
+                    listing_segment="first_hand_remaining",
+                    source_confidence="high",
+                ),
+            ]
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="ricacorp",
+            limit=5,
+            validate=True,
+            create_monitors=False,
+        )
+
+        assert summary.generated == 1
+        assert summary.validated == 1
+        assert len(summary.candidates) == 1
+        assert summary.candidates[0].search_url.endswith(
+            "/property/list/buy/%E6%B8%AF%E5%B3%B6%E5%8D%97%E5%B2%B8-bigest-%E9%BB%83%E7%AB%B9%E5%9D%91-hma-hk"
+        )
+
+
+def test_discover_ricacorp_monitor_candidates_validates_listing_page_via_searchfilter_alias(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-ricacorp-searchfilter.db'}")
+    Base.metadata.create_all(engine)
+    estate_list_html = """
+    <html>
+      <body>
+        <script id="serverApp-state" type="application/json">
+          {&q;alias&q;:&q;明翹匯-bigest-青衣-hma-hk&q;,&q;locationText&q;:&q;明翹匯&q;,&q;zoneText&q;:&q;青衣&q;,&q;others&q;:[{&q;itemId&q;:&q;post.sales&q;,&q;count&q;:11}]}
+        </script>
+      </body>
+    </html>
+    """
+    buy_results_html = """
+    <html>
+      <body>
+        <script id="serverApp-state" type="application/json">
+          {&q;SEARCHFILTER&q;:{&q;alias&q;:&q;明翹匯-bigest-青衣-hma-hk&q;,&q;page&q;:1}}
+        </script>
+        <rc-property-listing-item-desktop>
+          <a href="/zh-hk/property/detail/%E5%B1%AF%E9%96%80/%E5%B1%AF%E9%96%80%E5%B8%82%E5%BB%A3%E5%A0%B4-cp58276468-3-hk"></a>
+          <h3 class="address">屯門市廣場 3期 8座</h3>
+          <div class="market-price-block"><div class="price-container">$430</div></div>
+          <span class="unit-price">$9,159/呎</span>
+          <span>實用 470 呎</span>
+          <span>物業編號 CP58276468</span>
+        </rc-property-listing-item-desktop>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_estate_list_html",
+        lambda self: estate_list_html,
+    )
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_search_results_html",
+        lambda self, url: buy_results_html,
+    )
+
+    with Session(engine) as session:
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="srpe-rica-searchfilter-001",
+                source_url="https://www.srpe.gov.hk/",
+                name_zh="明翹匯",
+                name_translations_json={"zh-Hant": "明翹匯", "zh-Hans": "明翹汇"},
+                aliases_json=["明翹匯"],
+                district="Tsing Yi",
+                region="New Territories",
+                listing_segment="second_hand",
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="ricacorp",
+            limit=5,
+            validate=True,
+            create_monitors=False,
+        )
+
+        assert summary.generated == 1
+        assert summary.validated == 1
+        assert summary.candidates[0].validated is True
+        assert summary.candidates[0].validation_message == "Matched Ricacorp listing page: 明翹匯"
 
 
 def test_set_commercial_monitors_active_state_can_filter_auto_discovered(tmp_path: Path) -> None:

@@ -606,6 +606,15 @@ a:hover {
   border-radius: 999px;
 }
 
+.legend-dashed-ring {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  border: 2px dashed #a21caf;
+  border-radius: 999px;
+  background: rgba(162, 28, 175, 0.14);
+}
+
 .map-panel {
   min-height: 640px;
 }
@@ -656,6 +665,30 @@ a:hover {
   color: var(--accent);
 }
 
+.map-legend-overlay {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 900;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(49, 44, 35, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 252, 245, 0.94);
+  box-shadow: 0 12px 28px rgba(49, 44, 35, 0.12);
+}
+
+.map-legend-overlay div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-legend-overlay small {
+  color: var(--text);
+}
+
 .leaflet-popup-content {
   margin: 12px 14px;
 }
@@ -672,18 +705,29 @@ a:hover {
 }
 
 .bubble-primary {
-  background: #bb6126;
-  color: #fff8f1;
+  background: #f97316;
+  color: #fff7ed;
+}
+
+.bubble-new {
+  background: #2563eb;
+  color: #eff6ff;
 }
 
 .bubble-secondary {
-  background: #517654;
-  color: #f6fbf2;
+  background: #2f855a;
+  color: #f0fdf4;
 }
 
 .bubble-muted {
-  background: #355c70;
-  color: #f3fbff;
+  background: #64748b;
+  color: #f8fafc;
+}
+
+.bubble-launch-watch {
+  background: #a21caf;
+  color: #fdf4ff;
+  opacity: 0.78;
 }
 
 .map-popup-actions {
@@ -951,6 +995,69 @@ a:hover {
   align-items: flex-start;
 }
 
+.launch-watch-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 20px;
+  align-items: flex-start;
+}
+
+.launch-watch-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.launch-watch-card {
+  display: grid;
+  gap: 14px;
+}
+
+.launch-watch-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.launch-watch-card-head h2 {
+  margin: 0 0 8px;
+}
+
+.launch-watch-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.launch-watch-badge-launch-watch {
+  background: rgba(155, 93, 46, 0.14);
+  color: #7f441f;
+}
+
+.launch-watch-badge-watch-selling,
+.launch-watch-badge-selling {
+  background: rgba(53, 124, 71, 0.12);
+  color: #295a34;
+}
+
+.launch-watch-badge-watching {
+  background: rgba(53, 92, 112, 0.14);
+  color: #244456;
+}
+
+.launch-watch-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .watchlist-board {
   display: grid;
   gap: 18px;
@@ -1215,6 +1322,10 @@ a:hover {
     grid-template-columns: 1fr;
   }
 
+  .launch-watch-layout {
+    grid-template-columns: 1fr;
+  }
+
   .detail-span-2 {
     grid-column: auto;
   }
@@ -1235,6 +1346,10 @@ a:hover {
   }
 
   .watchlist-card-head {
+    flex-direction: column;
+  }
+
+  .launch-watch-card-head {
     flex-direction: column;
   }
 

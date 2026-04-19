@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { href: "/map", label: "Map" },
   { href: "/listings", label: "Listings" },
   { href: "/compare", label: "Compare" },
+  { href: "/launch-watch", label: "Launch Watch" },
   { href: "/watchlist", label: "Watchlist" },
   { href: "/activity", label: "Activity" },
   { href: "/system", label: "System" },

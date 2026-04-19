@@ -166,6 +166,20 @@ conda run -n py311 hhi-worker sync-launch-watch-config --dry-run
 conda run -n py311 hhi-worker sync-launch-watch-config
 ```
 
+如果要补最新官方待批预售项目：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
+```
+
+如果要补最新官方已批预售 / 转让同意项目：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-issued --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-issued
+```
+
 默认读取：
 
 - `configs/launch_watch_projects.toml`

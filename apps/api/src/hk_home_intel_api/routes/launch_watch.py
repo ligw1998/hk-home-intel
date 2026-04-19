@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from hk_home_intel_domain.geo import infer_coordinates
 from hk_home_intel_domain.i18n import localize_text
 from hk_home_intel_domain.launch_watch import ensure_launch_watch_table
 from hk_home_intel_domain.models import Development, LaunchWatchProject
@@ -29,7 +30,21 @@ class LaunchWatchItem(BaseModel):
     note: str | None
     tags: list[str]
     is_active: bool
+    lat: float | None
+    lng: float | None
+    coordinate_mode: str
     updated_at: str
+
+
+def _extract_address_hint(note: str | None) -> str | None:
+    if not note:
+        return None
+    for marker in ("Address ", "at "):
+        start = note.find(marker)
+        if start != -1:
+            fragment = note[start + len(marker) :]
+            return fragment.split(".", 1)[0].strip() or None
+    return None
 
 
 class LaunchWatchListResponse(BaseModel):
@@ -63,14 +78,29 @@ def list_launch_watch_projects(
     items: list[LaunchWatchItem] = []
     for row in rows:
         linked_development_name = None
+        linked_development = None
         if row.linked_development_id:
             development = session.get(Development, row.linked_development_id)
             if development is not None:
+                linked_development = development
                 linked_development_name = localize_text(
                     development.name_translations_json or {},
                     lang,
                     default=development.name_zh or development.name_en or row.project_name,
                 )
+
+        lat = linked_development.lat if linked_development is not None else None
+        lng = linked_development.lng if linked_development is not None else None
+        coordinate_mode = "exact" if lat is not None and lng is not None else "missing"
+        if lat is None or lng is None:
+            address_hint = _extract_address_hint(row.note)
+            lat, lng = infer_coordinates(
+                address=address_hint,
+                district=row.district,
+                region=row.region,
+            )
+            if lat is not None and lng is not None:
+                coordinate_mode = "approximate"
 
         display_name = row.project_name_en if lang == "en" and row.project_name_en else row.project_name
         item = LaunchWatchItem(
@@ -79,8 +109,8 @@ def list_launch_watch_projects(
             project_name=row.project_name,
             project_name_en=row.project_name_en,
             display_name=display_name,
-            district=row.district,
-            region=row.region,
+            district=row.district or (linked_development.district if linked_development is not None else None),
+            region=row.region or (linked_development.region if linked_development is not None else None),
             expected_launch_window=row.expected_launch_window,
             launch_stage=row.launch_stage,
             official_site_url=row.official_site_url,
@@ -89,8 +119,11 @@ def list_launch_watch_projects(
             linked_development_id=row.linked_development_id,
             linked_development_name=linked_development_name,
             note=row.note,
-            tags=list(row.tags_json or []),
+            tags=list(dict.fromkeys(row.tags_json or [])),
             is_active=row.is_active,
+            lat=lat,
+            lng=lng,
+            coordinate_mode=coordinate_mode,
             updated_at=row.updated_at.isoformat(),
         )
         if q:

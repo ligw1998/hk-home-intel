@@ -92,7 +92,7 @@ class RicacorpAdapter(SourceAdapter):
         *,
         html_text: str | None = None,
         html_path: str | None = None,
-    ) -> list[dict[str, str | None]]:
+    ) -> list[dict[str, Any]]:
         if html_text is None:
             if html_path:
                 html_text = Path(html_path).read_text(encoding="utf-8")
@@ -100,16 +100,12 @@ class RicacorpAdapter(SourceAdapter):
                 html_text = self.fetch_estate_list_html()
 
         soup = BeautifulSoup(html_text, "html.parser")
-        entries: list[dict[str, str | None]] = []
-        seen_urls: set[str] = set()
+        entries_by_url: dict[str, dict[str, Any]] = {}
         for href_node in soup.select("a[href*='/property/estate/']"):
             href = href_node.get("href")
             if not href:
                 continue
             estate_url = urljoin(self.base_url, href)
-            if estate_url in seen_urls:
-                continue
-            seen_urls.add(estate_url)
             display_name = self._clean_text(
                 (href_node.select_one(".location-text") or href_node.select_one(".display-text") or href_node.select_one(".location-name"))
                 and (href_node.select_one(".location-text") or href_node.select_one(".display-text") or href_node.select_one(".location-name")).get_text(" ", strip=True)
@@ -124,15 +120,31 @@ class RicacorpAdapter(SourceAdapter):
                 if href_node.select_one("img") and href_node.select_one("img").get("alt")
                 else None
             )
-            entries.append(
+            entries_by_url.setdefault(
+                estate_url,
                 {
                     "estate_url": estate_url,
                     "display_name": display_name,
                     "alt_name": alt_name,
                     "zone_text": zone_text,
-                }
+                    "alias": None,
+                    "alias_name": None,
+                    "buy_list_url": None,
+                    "sales_count": None,
+                },
             )
-        return entries
+        for entry in self._extract_estate_index_entries_from_state(html_text):
+            estate_url = str(entry.get("estate_url") or "").strip()
+            if not estate_url:
+                continue
+            existing = entries_by_url.get(estate_url)
+            if existing is None:
+                entries_by_url[estate_url] = entry
+                continue
+            for key, value in entry.items():
+                if existing.get(key) in {None, ""} and value not in {None, ""}:
+                    existing[key] = value
+        return list(entries_by_url.values())
 
     def extract_estate_page_name(self, html_text: str) -> str | None:
         soup = BeautifulSoup(html_text, "html.parser")
@@ -168,6 +180,57 @@ class RicacorpAdapter(SourceAdapter):
 
         return None
 
+    def extract_listing_page_alias(self, html_text: str) -> str | None:
+        match = re.search(
+            r"&q;SEARCHFILTER&q;:\{[^{}]*?&q;alias&q;:&q;([^&]+?)&q;",
+            html_text,
+            re.DOTALL,
+        )
+        if not match:
+            return None
+        return self._clean_text(match.group(1))
+
+    def extract_listing_page_name(self, html_text: str) -> str | None:
+        alias = self.extract_listing_page_alias(html_text)
+        if not alias:
+            return None
+        return self._alias_name(alias)
+
+    def _extract_estate_index_entries_from_state(self, html_text: str) -> list[dict[str, Any]]:
+        state_match = re.search(
+            r'<script[^>]+id="serverApp-state"[^>]*>(.*?)</script>',
+            html_text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        state_text = state_match.group(1) if state_match else html_text
+        alias_matches = list(re.finditer(r"&q;alias&q;:&q;([^&]+?)&q;", state_text))
+        entries: list[dict[str, Any]] = []
+
+        for index, match in enumerate(alias_matches):
+            alias = self._clean_text(match.group(1))
+            if not alias:
+                continue
+            next_start = alias_matches[index + 1].start() if index + 1 < len(alias_matches) else len(state_text)
+            segment = state_text[match.start():next_start]
+            sales_counts = [
+                int(value)
+                for value in re.findall(r"&q;itemId&q;:&q;post\.sales&q;,&q;count&q;:(\d+)", segment)
+            ]
+            buy_list_url = self._buy_list_url_from_alias(alias, current_url=self._estate_url_from_alias(alias))
+            entries.append(
+                {
+                    "estate_url": self._estate_url_from_alias(alias),
+                    "display_name": self._first_state_text(segment, "locationText", "displayText", "address1", "name"),
+                    "alt_name": self._first_state_text(segment, "displayText", "locationText"),
+                    "zone_text": self._first_state_text(segment, "zoneText", "address2", "areaName", "district"),
+                    "alias": alias,
+                    "alias_name": self._alias_name(alias),
+                    "buy_list_url": buy_list_url,
+                    "sales_count": max(sales_counts) if sales_counts else None,
+                }
+            )
+        return entries
+
     def _extract_estate_buy_list_url_from_state(self, html_text: str, *, estate_url: str) -> str | None:
         state_match = re.search(
             r'<script[^>]+id="serverApp-state"[^>]*>(.*?)</script>',
@@ -190,11 +253,40 @@ class RicacorpAdapter(SourceAdapter):
             cleaned_alias = self._clean_text(alias)
             if not cleaned_alias:
                 continue
-            buy_alias = cleaned_alias.replace("-estate-", "-bigest-")
-            if "-bigest-" not in buy_alias:
-                continue
-            encoded_alias = quote(buy_alias, safe="-")
-            return self._resolve_property_href(f"list/buy/{encoded_alias}", current_url=estate_url)
+            resolved_url = self._buy_list_url_from_alias(cleaned_alias, current_url=estate_url)
+            if resolved_url:
+                return resolved_url
+        return None
+
+    def _estate_url_from_alias(self, alias: str) -> str:
+        encoded_alias = quote(alias, safe="-")
+        return f"{self.base_url}/zh-hk/property/estate/{encoded_alias}"
+
+    def _buy_list_url_from_alias(self, alias: str, *, current_url: str) -> str | None:
+        cleaned_alias = self._clean_text(alias)
+        if not cleaned_alias:
+            return None
+        buy_alias = cleaned_alias.replace("-estate-", "-bigest-")
+        if "-bigest-" not in buy_alias:
+            return None
+        encoded_alias = quote(buy_alias, safe="-")
+        return self._resolve_property_href(f"list/buy/{encoded_alias}", current_url=current_url)
+
+    def _alias_name(self, alias: str) -> str | None:
+        cleaned_alias = self._clean_text(alias)
+        if not cleaned_alias:
+            return None
+        stem = re.split(r"-(?:estate|bigest)-", cleaned_alias, maxsplit=1, flags=re.IGNORECASE)[0]
+        stem = stem.replace("-", " ")
+        return self._clean_text(stem)
+
+    def _first_state_text(self, state_text: str, *keys: str) -> str | None:
+        for key in keys:
+            match = re.search(rf"&q;{re.escape(key)}&q;:&q;([^&]+?)&q;", state_text)
+            if match:
+                cleaned = self._clean_text(match.group(1))
+                if cleaned:
+                    return cleaned
         return None
 
     def _resolve_property_href(self, href: str, *, current_url: str) -> str:

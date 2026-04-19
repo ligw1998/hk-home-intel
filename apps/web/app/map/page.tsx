@@ -28,8 +28,30 @@ type DevelopmentSummary = {
   active_listing_bedroom_options: number[];
 };
 
+type LaunchWatchMapItem = {
+  id: string;
+  display_name: string;
+  district: string | null;
+  region: string | null;
+  expected_launch_window: string | null;
+  launch_stage: string;
+  official_site_url: string | null;
+  source_url: string | null;
+  linked_development_id: string | null;
+  linked_development_name: string | null;
+  note: string | null;
+  lat: number | null;
+  lng: number | null;
+  coordinate_mode: string;
+};
+
 type DevelopmentListResponse = {
   items: DevelopmentSummary[];
+  total: number;
+};
+
+type LaunchWatchResponse = {
+  items: LaunchWatchMapItem[];
   total: number;
 };
 
@@ -225,6 +247,9 @@ function MapPageContent() {
   const [maxSaleableAreaSqft, setMaxSaleableAreaSqft] = useState("");
   const [maxAgeYears, setMaxAgeYears] = useState("");
   const [watchlistOnly, setWatchlistOnly] = useState(false);
+  const [showLaunchWatch, setShowLaunchWatch] = useState(true);
+  const [launchWatchItems, setLaunchWatchItems] = useState<LaunchWatchMapItem[]>([]);
+  const [selectedLaunchWatchId, setSelectedLaunchWatchId] = useState<string | null>(null);
   const [presetName, setPresetName] = useState("Buyer Focus");
   const [presetNote, setPresetNote] = useState("800萬-1800萬、400-750呎（約 37-70 平方米）、2房優先，再看3房、1房、開放式。");
   const [loading, setLoading] = useState(true);
@@ -286,6 +311,41 @@ function MapPageContent() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLaunchWatch() {
+      if (!showLaunchWatch) {
+        setLaunchWatchItems([]);
+        setSelectedLaunchWatchId(null);
+        return;
+      }
+      try {
+        const response = await fetch(`${API_BASE}/api/v1/launch-watch?lang=zh-Hant`);
+        if (!response.ok) {
+          throw new Error(`launch-watch HTTP ${response.status}`);
+        }
+        const payload = (await response.json()) as LaunchWatchResponse;
+        if (!cancelled) {
+          const filtered = payload.items.filter((item) => item.lat !== null && item.lng !== null);
+          setLaunchWatchItems(filtered);
+          setSelectedLaunchWatchId((current) =>
+            current && filtered.some((item) => item.id === current) ? current : null,
+          );
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Unknown error");
+        }
+      }
+    }
+
+    void loadLaunchWatch();
+    return () => {
+      cancelled = true;
+    };
+  }, [showLaunchWatch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -409,11 +469,14 @@ function MapPageContent() {
   }, [developments]);
 
   const selected = developments.find((item) => item.id === selectedId) ?? null;
+  const selectedLaunchWatch =
+    launchWatchItems.find((item) => item.id === selectedLaunchWatchId) ?? null;
   const watchlistCount = developments.filter((item) => Boolean(watchlistByDevelopment[item.id])).length;
   const newCount = developments.filter((item) => item.listing_segment === "new").length;
   const firstHandCount = developments.filter((item) => item.listing_segment === "first_hand_remaining").length;
   const secondHandCount = developments.filter((item) => item.listing_segment === "second_hand").length;
   const mixedCount = developments.filter((item) => item.listing_segment === "mixed").length;
+  const launchWatchCount = launchWatchItems.length;
 
   function applySuggestedBuyerFocus() {
     setSegments(DEFAULT_SEGMENTS);
@@ -425,6 +488,7 @@ function MapPageContent() {
     setMaxSaleableAreaSqft("750");
     setMaxAgeYears("10");
     setWatchlistOnly(false);
+    setShowLaunchWatch(true);
     setPresetInfo("Applied buyer-focus filter: 800萬-1800萬, 400-750呎, 2房 > 3房 > 1房 > 開放式, age <= 10.");
   }
 
@@ -441,6 +505,7 @@ function MapPageContent() {
     setMaxSaleableAreaSqft("");
     setMaxAgeYears("");
     setWatchlistOnly(false);
+    setShowLaunchWatch(true);
     setPresetInfo("Cleared filters. Showing broad live map view.");
   }
 
@@ -673,6 +738,15 @@ function MapPageContent() {
             <span>Watchlist only</span>
           </label>
 
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={showLaunchWatch}
+              onChange={(event) => setShowLaunchWatch(event.target.checked)}
+            />
+            <span>Show launch-watch</span>
+          </label>
+
           <p className="muted">
             {loading
               ? "Refreshing development candidates..."
@@ -704,9 +778,17 @@ function MapPageContent() {
               <dt>Mixed</dt>
               <dd>{mixedCount}</dd>
             </div>
+            <div>
+              <dt>Launch-watch</dt>
+              <dd>{launchWatchCount}</dd>
+            </div>
           </dl>
 
           <div className="legend">
+            <div>
+              <span className="bubble bubble-new legend-bubble" />
+              <small>New</small>
+            </div>
             <div>
               <span className="bubble bubble-primary legend-bubble" />
               <small>First-hand remaining</small>
@@ -720,8 +802,16 @@ function MapPageContent() {
               <small>Mixed</small>
             </div>
             <div>
+              <span className="bubble bubble-launch-watch legend-bubble" />
+              <small>Launch watch</small>
+            </div>
+            <div>
+              <span className="legend-dashed-ring" />
+              <small>Approx. launch-watch</small>
+            </div>
+            <div>
               <span className="legend-ring" />
-              <small>In watchlist</small>
+              <small>Selected / watchlist ring</small>
             </div>
           </div>
 
@@ -799,12 +889,21 @@ function MapPageContent() {
           <h2>Map</h2>
           {error ? (
             <p className="muted">Map data unavailable: {error}</p>
-          ) : developments.length > 0 ? (
+          ) : developments.length > 0 || launchWatchItems.length > 0 ? (
             <DevelopmentLeafletMap
               developments={developments}
+              launchWatchItems={launchWatchItems}
               selectedId={selectedId}
+              selectedLaunchWatchId={selectedLaunchWatchId}
               watchlistByDevelopment={watchlistByDevelopment}
-              onSelect={setSelectedId}
+              onSelect={(id) => {
+                setSelectedLaunchWatchId(null);
+                setSelectedId(id);
+              }}
+              onSelectLaunchWatch={(id) => {
+                setSelectedId(null);
+                setSelectedLaunchWatchId(id);
+              }}
             />
           ) : (
             <div className="empty-state">
@@ -819,7 +918,42 @@ function MapPageContent() {
 
         <aside className="panel detail-panel">
           <h2>Selected</h2>
-          {selected ? (
+          {selectedLaunchWatch ? (
+            <div className="selected-card">
+              <strong>{selectedLaunchWatch.display_name}</strong>
+              <span>
+                {selectedLaunchWatch.district ?? "Unknown district"}
+                {selectedLaunchWatch.region ? ` / ${selectedLaunchWatch.region}` : ""}
+              </span>
+              <span>Launch watch / {selectedLaunchWatch.launch_stage}</span>
+              {selectedLaunchWatch.expected_launch_window ? (
+                <span>{selectedLaunchWatch.expected_launch_window}</span>
+              ) : null}
+              {selectedLaunchWatch.linked_development_name ? (
+                <span>Linked / {selectedLaunchWatch.linked_development_name}</span>
+              ) : null}
+              {selectedLaunchWatch.note ? <span className="decision-why-now">{selectedLaunchWatch.note}</span> : null}
+              <span>
+                {selectedLaunchWatch.lat?.toFixed(5)}, {selectedLaunchWatch.lng?.toFixed(5)}
+              </span>
+              <div className="hero-actions">
+                <Link href="/launch-watch">Open launch watch</Link>
+                {selectedLaunchWatch.linked_development_id ? (
+                  <Link href={`/developments/${selectedLaunchWatch.linked_development_id}`}>Open linked development</Link>
+                ) : null}
+                {selectedLaunchWatch.official_site_url ? (
+                  <a href={selectedLaunchWatch.official_site_url} target="_blank" rel="noreferrer">
+                    Official site
+                  </a>
+                ) : null}
+                {selectedLaunchWatch.source_url ? (
+                  <a href={selectedLaunchWatch.source_url} target="_blank" rel="noreferrer">
+                    Source signal
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          ) : selected ? (
             <div className="selected-card">
               <strong>{selected.display_name ?? selected.id}</strong>
               <span>
@@ -891,13 +1025,38 @@ function MapPageContent() {
             <p className="muted">Select a point on the map.</p>
           )}
 
+          {showLaunchWatch && launchWatchItems.length > 0 ? (
+            <div className="map-list">
+              {launchWatchItems.map((item) => (
+                <button
+                  key={`launch-watch-list-${item.id}`}
+                  type="button"
+                  className={`map-list-item ${item.id === selectedLaunchWatch?.id ? "map-list-item-active" : ""}`}
+                  onClick={() => {
+                    setSelectedId(null);
+                    setSelectedLaunchWatchId(item.id);
+                  }}
+                >
+                  <strong>{item.display_name} · launch-watch</strong>
+                  <span>
+                    {item.district ?? "Unknown district"} / {item.launch_stage}
+                  </span>
+                  <span>{item.expected_launch_window ?? "window TBD"}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           <div className="map-list">
             {developments.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 className={`map-list-item ${item.id === selected?.id ? "map-list-item-active" : ""}`}
-                onClick={() => setSelectedId(item.id)}
+                onClick={() => {
+                  setSelectedLaunchWatchId(null);
+                  setSelectedId(item.id);
+                }}
               >
                 <strong>
                   {item.display_name ?? item.id}

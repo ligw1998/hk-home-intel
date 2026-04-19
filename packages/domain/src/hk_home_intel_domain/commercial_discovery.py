@@ -369,7 +369,7 @@ def _resolve_ricacorp_candidate_pairs(
     adapter: RicacorpAdapter,
     item: Development,
     *,
-    estate_entries: list[dict[str, str | None]],
+    estate_entries: list[dict[str, Any]],
 ) -> list[tuple[str, str]]:
     expected_keys = _ricacorp_identity_keys(item)
     results: list[tuple[str, str]] = []
@@ -379,18 +379,19 @@ def _resolve_ricacorp_candidate_pairs(
         entry_values = [
             entry.get("display_name"),
             entry.get("alt_name"),
+            entry.get("alias_name"),
         ]
         entry_keys = {_normalize_name(value) for value in entry_values if _normalize_name(value)}
         if not entry_keys or not (entry_keys & expected_keys):
             continue
-        estate_url = str(entry.get("estate_url") or "").strip()
-        if not estate_url or estate_url in seen_urls:
+        candidate_url = str(entry.get("buy_list_url") or entry.get("estate_url") or "").strip()
+        if not candidate_url or candidate_url in seen_urls:
             continue
-        seen_urls.add(estate_url)
-        name_hint = next((value for value in entry_values if value), item.name_zh or item.name_en or estate_url)
-        results.append((name_hint, estate_url))
+        seen_urls.add(candidate_url)
+        name_hint = next((value for value in entry_values if value), item.name_zh or item.name_en or candidate_url)
+        results.append((name_hint, candidate_url))
 
-    if results:
+    if results or estate_entries:
         return results
     return _ricacorp_candidate_urls(item)
 
@@ -427,6 +428,28 @@ def _validate_ricacorp_candidate(item: Development, *, name_hint: str, url: str)
     adapter = RicacorpAdapter()
     html_text = adapter.fetch_search_results_html(url)
     expected_keys = _ricacorp_identity_keys(item, name_hint=name_hint)
+    if "/property/list/buy/" in url:
+        listing_page_name = adapter.extract_listing_page_name(html_text)
+        listing_page_keys = {_normalize_name(listing_page_name)} if _normalize_name(listing_page_name) else set()
+        try:
+            bundles = adapter.search_results_listing_bundle(url=url, html_text=html_text, limit=5)
+        except Exception:
+            bundles = []
+        parsed_keys: set[str] = set()
+        for bundle in bundles:
+            payload = bundle["development"].payload
+            parsed_keys.update(
+                {
+                    _normalize_name(payload.get("name_zh")),
+                    _normalize_name(payload.get("name_en")),
+                    *(_normalize_name(value) for value in (payload.get("name_translations") or {}).values()),
+                }
+            )
+        if listing_page_keys & expected_keys:
+            return True, f"Matched Ricacorp listing page: {listing_page_name or name_hint}", url
+        if bundles and (parsed_keys & expected_keys):
+            return True, f"Matched Ricacorp listing page: {name_hint}", url
+        return False, "Fetched Ricacorp listing page but did not find a convincing development-name match.", None
     page_name = adapter.extract_estate_page_name(html_text)
     page_keys = {_normalize_name(page_name)} if _normalize_name(page_name) else set()
     buy_list_url = adapter.extract_estate_buy_list_url(html_text, estate_url=url)
@@ -736,23 +759,23 @@ def discover_commercial_monitor_candidates(
         ranked.append((score, reasons, context))
     ranked.sort(key=lambda value: value[0], reverse=True)
 
-    ricacorp_estate_entries: list[dict[str, str | None]] | None = None
+    ricacorp_estate_entries: list[dict[str, Any]] | None = None
     if source == "ricacorp":
         ricacorp_estate_entries = RicacorpAdapter().estate_index_entries()
 
     candidates: list[CommercialDiscoveryCandidate] = []
     created_count = 0
     validated_count = 0
+    existing_urls = {
+        value.search_url: value.id
+        for value in session.scalars(
+            select(CommercialSearchMonitor).where(CommercialSearchMonitor.source == source)
+        ).all()
+    }
+    selected_urls: set[str] = set()
 
     for score, reasons, context in ranked:
         item = context.development
-        existing_urls = {
-            value.search_url: value.id
-            for value in session.scalars(
-                select(CommercialSearchMonitor).where(CommercialSearchMonitor.source == source)
-            ).all()
-        }
-
         if source == "centanet":
             candidate_pairs = _centanet_candidate_urls(item)
         else:
@@ -781,6 +804,9 @@ def discover_commercial_monitor_candidates(
                     validation_status = "fetch_failed"
                     validation_message = str(exc)
 
+            if url in selected_urls:
+                continue
+
             candidate = CommercialDiscoveryCandidate(
                 source=source,
                 development_id=item.id,
@@ -808,9 +834,12 @@ def discover_commercial_monitor_candidates(
                     candidate=candidate,
                     activate=activate_created,
                 )
+                if candidate.created_monitor_id:
+                    existing_urls[url] = candidate.created_monitor_id
                 created_count += 1
 
             candidates.append(candidate)
+            selected_urls.add(url)
             break
         if len(candidates) >= limit:
             break
