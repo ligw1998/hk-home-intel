@@ -33,6 +33,8 @@ type LaunchWatchMapItem = {
   region: string | null;
   expected_launch_window: string | null;
   launch_stage: string;
+  signal_bucket: string;
+  signal_label: string;
   official_site_url: string | null;
   source_url: string | null;
   linked_development_id: string | null;
@@ -60,7 +62,7 @@ function segmentColor(segment: string): string {
 }
 
 function launchWatchColor(stage: string): string {
-  if (stage === "selling" || stage === "watch-selling") {
+  if (stage === "selling" || stage === "watch_selling") {
     return "#be185d";
   }
   if (stage === "launch_watch") {
@@ -349,7 +351,7 @@ export function DevelopmentLeafletMap({
                     {item.district ?? "Unknown district"}
                     {item.region ? ` / ${item.region}` : ""}
                   </span>
-                  <span>Launch watch / {item.launch_stage}</span>
+                  <span>{item.signal_label} / {item.launch_stage}</span>
                   {item.coordinate_mode === "approximate" ? <span>Approximate map position</span> : null}
                   {item.expected_launch_window ? <span>{item.expected_launch_window}</span> : null}
                   {item.linked_development_name ? <span>Linked / {item.linked_development_name}</span> : null}
@@ -384,12 +386,11 @@ export function DevelopmentLeafletMap({
       </MapContainer>
       <div className="map-legend-overlay">
         <div>
-          <span className="bubble bubble-new legend-bubble" />
-          <small>New</small>
-        </div>
-        <div>
-          <span className="bubble bubble-primary legend-bubble" />
-          <small>First-hand remaining</small>
+          <span className="legend-dual-bubbles">
+            <span className="bubble bubble-new legend-bubble" />
+            <span className="bubble bubble-primary legend-bubble" />
+          </span>
+          <small>Primary market</small>
         </div>
         <div>
           <span className="bubble bubble-secondary legend-bubble" />

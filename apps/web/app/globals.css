@@ -606,6 +606,12 @@ a:hover {
   gap: 10px;
 }
 
+.legend-dual-bubbles {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .legend-bubble {
   display: inline-flex;
   width: 14px;

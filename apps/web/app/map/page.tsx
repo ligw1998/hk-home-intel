@@ -35,6 +35,8 @@ type LaunchWatchMapItem = {
   region: string | null;
   expected_launch_window: string | null;
   launch_stage: string;
+  signal_bucket: string;
+  signal_label: string;
   official_site_url: string | null;
   source_url: string | null;
   linked_development_id: string | null;
@@ -472,8 +474,9 @@ function MapPageContent() {
   const selectedLaunchWatch =
     launchWatchItems.find((item) => item.id === selectedLaunchWatchId) ?? null;
   const watchlistCount = developments.filter((item) => Boolean(watchlistByDevelopment[item.id])).length;
-  const newCount = developments.filter((item) => item.listing_segment === "new").length;
-  const firstHandCount = developments.filter((item) => item.listing_segment === "first_hand_remaining").length;
+  const primaryMarketCount = developments.filter(
+    (item) => item.listing_segment === "new" || item.listing_segment === "first_hand_remaining",
+  ).length;
   const secondHandCount = developments.filter((item) => item.listing_segment === "second_hand").length;
   const mixedCount = developments.filter((item) => item.listing_segment === "mixed").length;
   const launchWatchCount = launchWatchItems.length;
@@ -763,12 +766,8 @@ function MapPageContent() {
               <dd>{watchlistCount}</dd>
             </div>
             <div>
-              <dt>New</dt>
-              <dd>{newCount}</dd>
-            </div>
-            <div>
-              <dt>First-hand</dt>
-              <dd>{firstHandCount}</dd>
+              <dt>Primary market</dt>
+              <dd>{primaryMarketCount}</dd>
             </div>
             <div>
               <dt>Second-hand</dt>
@@ -786,12 +785,11 @@ function MapPageContent() {
 
           <div className="legend">
             <div>
-              <span className="bubble bubble-new legend-bubble" />
-              <small>New</small>
-            </div>
-            <div>
-              <span className="bubble bubble-primary legend-bubble" />
-              <small>First-hand remaining</small>
+              <span className="legend-dual-bubbles">
+                <span className="bubble bubble-new legend-bubble" />
+                <span className="bubble bubble-primary legend-bubble" />
+              </span>
+              <small>Primary market: new + first-hand remaining</small>
             </div>
             <div>
               <span className="bubble bubble-secondary legend-bubble" />
@@ -926,7 +924,7 @@ function MapPageContent() {
                   {selectedLaunchWatch.district ?? "Unknown district"}
                   {selectedLaunchWatch.region ? ` / ${selectedLaunchWatch.region}` : ""}
                 </span>
-                <span>Launch watch / {selectedLaunchWatch.launch_stage}</span>
+                <span>{selectedLaunchWatch.signal_label} / {selectedLaunchWatch.launch_stage}</span>
                 {selectedLaunchWatch.expected_launch_window ? (
                   <span>{selectedLaunchWatch.expected_launch_window}</span>
                 ) : null}
@@ -1040,7 +1038,7 @@ function MapPageContent() {
                   >
                     <strong>{item.display_name} · launch-watch</strong>
                     <span>
-                      {item.district ?? "Unknown district"} / {item.launch_stage}
+                      {item.district ?? "Unknown district"} / {item.signal_label}
                     </span>
                     <span>{item.expected_launch_window ?? "window TBD"}</span>
                   </button>
