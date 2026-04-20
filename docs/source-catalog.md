@@ -111,11 +111,13 @@
 说明：
 
 - 这两个 source 已写入开发基线，后续不会被遗忘或替换成低优先级站点
-- 当前 Phase 1 仍以官方 SRPE 链路验证为主，商业源的正式接入放到后续阶段
-- 当前进入 Phase 3 后，优先顺序明确为：
-  1. 先落 `price_event` 与 listing feed 的 canonical 层
-  2. 再实现中原地产香港 adapter
-  3. 之后才接利嘉阁
+- 当前实现里，这两个商业源都已经进入日常可用状态：
+  - `Centanet`：commercial discovery / monitor / batch refresh 已打通
+  - `Ricacorp`：commercial discovery / monitor / batch refresh 已打通
+- 当前角色分工更准确地说是：
+  1. `SRPE` 提供官方 development / document 基线
+  2. `Centanet` 负责主商业源 listing 扩量
+  3. `Ricacorp` 提供第二商业源视角与交叉验证
 
 ### 2.4 D 类：人工补充源
 
@@ -164,6 +166,16 @@ source:
 
 - 打通新盘、一手余货、地图定位、文档抓取、基础二手供给补充
 
+当前状态补充：
+
+- Phase 1 定义下的 `SRPE` 基线已经完成
+- 商业源不再只是“后续阶段规划”，而是已经进入日常运行
+- `launch-watch` 也已形成一条独立官方观察池主线：
+  - `landsd-pending`
+  - `landsd-issued`
+  - `srpe-recent-docs`
+  - `srpe-active`
+
 ### Phase 2
 
 1. 第二个商业 listing 源
@@ -171,6 +183,15 @@ source:
 2. 预售 / 待抽签 / 新盘前哨源
 3. 成交/统计类官方源
 4. 图片补齐和文档抽取增强
+
+当前状态补充：
+
+- `利嘉阁` 已不再只是规划项，而是当前已可用的第二商业源
+- `预售 / 待抽签 / 新盘前哨源` 已有第一版落地，当前优先级最高的是：
+  - `LandsD pre-sale consent`
+  - `SRPE recent docs`
+  - `SRPE active`
+- `Housing Bureau` 仍更适合作为宏观供应背景层，而不是当前项目级观察池的主清单
 
 ### Phase 3
 

@@ -6,6 +6,25 @@
 
 ## 2. 总体阶段
 
+## 当前状态概览
+
+当前实现已经明显超过“只有官方 baseline”的阶段，比较准确的位置是：
+
+- `SRPE` 基线：已完成
+- `map / shortlist / compare / system / launch-watch`：已可用
+- `Centanet / Ricacorp` commercial discovery + monitor + batch refresh：已可用
+- `launch-watch` 官方信号层：已具备
+  - `landsd-pending`
+  - `landsd-issued`
+  - `landsd-all`
+  - `srpe-recent-docs`
+  - `srpe-active`
+
+所以当前更接近：
+
+- Phase 3 已经基本落地
+- Phase 4 的部分工作台能力也已经开始出现
+
 ## Phase 0: 设计与脚手架
 
 目标：
@@ -24,7 +43,7 @@
 完成标准：
 
 - 本地一键启动空白系统
-- PostgreSQL + PostGIS 可用
+- SQLite 本地模式可用
 - 基础健康检查接口可访问
 
 ## Phase 1: 最小可用版
@@ -80,6 +99,11 @@
 - watchlist 能支持阶段、备注、基础决策管理
 - 能用定时任务完成日级更新，而不是全靠手动命令
 
+当前实现说明：
+
+- 这部分已完成
+- `/system`、`/map`、`/watchlist`、`/shortlist`、`/compare` 都已进入日常可用范围
+
 ## Phase 3: 追踪与比较
 
 目标：
@@ -120,6 +144,17 @@
 - 每天能快速看到新增、降价、售出、撤盘
 - 可对多个相似户型并排比较
 - 单盘支持查看关键文档和历史变化
+
+当前实现说明：
+
+- 这部分也已经基本落地
+- 已有：
+  - `price_event`
+  - `/api/v1/listings/feed`
+  - `Centanet`
+  - `Ricacorp`
+  - `commercial monitor discovery / batch refresh`
+  - `launch-watch`
 
 推荐顺序：
 
@@ -192,7 +227,7 @@
 ### 3.1 基础设施
 
 1. 初始化 monorepo 目录
-2. 启动 PostgreSQL + PostGIS
+2. 先用 SQLite 跑通本地模式；后续需要时再切 PostgreSQL + PostGIS
 3. 建 migration 机制
 4. 建本地对象存储目录
 
@@ -282,12 +317,10 @@
 
 ## 7. 建议的近期执行清单
 
-如果直接进入开发，建议下一步按这个顺序：
+如果按当前项目状态继续往前推进，建议下一步按这个顺序：
 
-1. 初始化项目目录与基础脚手架
-2. 起 PostgreSQL + PostGIS
-3. 建第一版 schema migration
-4. 落第一个 `SourceAdapter`
-5. 实现 `GET /developments` 与地图页
-6. 实现 watchlist
-7. 加每日调度与系统监控页
+1. 继续提高 `Ricacorp` commercial discovery 的候选质量与覆盖率
+2. 继续收紧 `launch-watch` 的官方信号分层，优先保留更接近待抽签 / 近期开售的项目
+3. 把 `launch-watch` 与 `map / shortlist / compare` 的联动解释继续补强
+4. 收敛批量运行策略与 `/system` 可观测性，降低偶发超时的影响
+5. 再评估是否需要引入更多官方供应背景层，例如 `Housing Bureau`

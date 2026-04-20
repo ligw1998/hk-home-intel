@@ -121,20 +121,23 @@ conda run -n py311 hhi-worker backfill-development-geography
 
 - `SRPE` 更适合“已经进入销售文件阶段”的一手项目
 - 真正临近推售的盘，往往会先在：
-  - `Lands Department` 预售同意书统计
+  - `LandsD` 预售同意书统计
+  - `SRPE` 近期价单 / 销售安排 / 楼书动作
   - 开发商官网 / 项目 microsite
   - 商业源一手快讯 / 新盘时间表
  里出现
 
 建议顺序：
 
-1. 先用官方 `Lands Department pre-sale consent` 与 `Housing Bureau` 统计建立未来供应池
-2. 再给重点项目补 `official_site_url`
-3. 再用商业源确认：
+1. 先用 `LandsD pending / issued` 建最前置的官方预售信号层
+2. 再用 `SRPE recent docs` 捕捉近期真的有价单 / 销售安排 / 楼书动作的项目
+3. 需要更宽范围时，再用 `SRPE active` 补仍在官方一手链路中的近期开售窗口
+4. 再给重点项目补 `official_site_url`
+5. 再用商业源确认：
    - 是否开始开放示位
    - 是否开始收票 / 抽签
    - 是否进入首轮销售
-4. 只有进入 `launch-watch` 高优先级的盘，才补更密集的日常追踪
+6. 只有进入 `launch-watch` 高优先级的盘，才补更密集的日常追踪
 
 如果先用人工整理的公开信号做第一批候选，可以直接同步：
 
@@ -164,6 +167,27 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-issued
 查看当前候选池：
 
 - `GET /api/v1/launch-watch`
+
+如果想一条命令同步两类 `LandsD` 官方信号：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all
+```
+
+如果想把近期真的在 `SRPE` 上有价单 / 销售安排 / 楼书动作的项目纳入观察池：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs
+```
+
+如果想再把范围放宽到当前仍在 `SRPE` 一手链路里的近期开售项目：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active
+```
 
 建议的 monitor 扩量顺序：
 

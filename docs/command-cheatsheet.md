@@ -80,8 +80,14 @@ conda run -n py311 hhi-worker run-commercial-search-monitors --source ricacorp -
 如果你还想把未来新盘观察池一起刷新，再加：
 
 ```bash
-conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
-conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-issued
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs
+```
+
+如果你想把范围更宽一些、把仍在官方一手链路里的近期开售项目也一起放进观察池，再额外跑：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active
 ```
 
 ## 2. Expand Development Base
@@ -328,7 +334,8 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-do
 conda run -n py311 hhi-worker import-srpe-index --lang en --limit 50 --offset 0
 conda run -n py311 hhi-worker run-commercial-search-monitors --source centanet --limit-override 20
 conda run -n py311 hhi-worker run-commercial-search-monitors --source ricacorp --limit-override 20
-conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs
 ```
 
 然后看：

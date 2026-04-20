@@ -2,7 +2,7 @@
 
 ## 1. 当前定位
 
-Phase 0 默认采用轻量本地开发模式，不依赖 Docker。
+当前默认采用轻量本地开发模式，不依赖 Docker。
 
 - Python: `conda` 环境 `py311`
 - Web: 本地 Node.js
@@ -105,7 +105,8 @@ curl http://127.0.0.1:8000/api/v1/developments
 ```bash
 conda run -n py311 hhi-worker import-srpe-index --lang en --limit 50 --offset 0
 conda run -n py311 hhi-worker sync-launch-watch-config
-conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs
 conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source centanet --limit 20 --validate --create-monitors
 conda run -n py311 hhi-worker set-commercial-monitors-active --source centanet --auto-discovered
 conda run -n py311 hhi-worker run-commercial-search-monitors --source centanet --limit-override 20
@@ -117,6 +118,12 @@ conda run -n py311 hhi-worker run-commercial-search-monitors --source centanet -
 conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source ricacorp --limit 20 --validate --create-monitors
 conda run -n py311 hhi-worker set-commercial-monitors-active --source ricacorp --auto-discovered
 conda run -n py311 hhi-worker run-commercial-search-monitors --source ricacorp --limit-override 20
+```
+
+如果你想把仍在官方一手链路里的近期开售项目也纳入观察池，再额外跑：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active
 ```
 
 ## 3. Python 依赖安装

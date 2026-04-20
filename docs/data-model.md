@@ -21,27 +21,51 @@
 - 允许 `unit_instance` 缺失，避免因识别不到单位而丢数据
 - 派生分析尽量落到独立表，减少主表污染
 
-## 2. 实体关系总览
+## 2. 当前实现基线与目标模型
+
+当前数据库里已经稳定使用的核心对象是：
+
+- `development`
+- `listing`
+- `transaction`
+- `document`
+- `price_event`
+- `source_snapshot`
+- `watchlist_item`
+- `launch_watch_project`
+- `search_preset`
+- `commercial_search_monitor`
+- `refresh_job_run`
+
+也就是说，当前系统是以 `development / listing / transaction / document / monitor / launch-watch` 这组对象为主干。
+
+下面这张关系图里，`phase_block / unit_type / unit_instance` 更偏后续增强目标，而不是当前每条数据都已经稳定落库的强依赖。
+
+## 3. 实体关系总览
 
 ```text
+development 1---n listing
+development 1---n transaction
+development 1---n document
+listing 1---n price_event
+development 1---n watchlist_item
+development 1---n launch_watch_project
+development 1---n commercial_search_monitor
+
+# target enhancement
 development 1---n phase_block
 development 1---n unit_type
 phase_block 1---n unit_type
 phase_block 1---n unit_instance
 unit_type 1---n unit_instance
-development 1---n listing
-development 1---n transaction
 unit_instance 1---n listing
 unit_instance 1---n transaction
-development 1---n document
-listing 1---n price_event
-development 1---n watchlist_item
 unit_instance 1---n watchlist_item
 ```
 
-## 3. 核心主表
+## 4. 核心主表
 
-### 3.1 `development`
+### 4.1 `development`
 
 楼盘/屋苑级对象，是地图和详情页的主入口。
 
@@ -58,7 +82,7 @@ development
 - region
 - lat
 - lng
-- location_point
+- location_point           # 未来若切 PostGIS 时可引入
 - developer_names_json
 - tenure_type
 - completion_year
@@ -75,80 +99,11 @@ development
 说明：
 
 - `aliases_json` 保存别名和不同来源的命名
-- `location_point` 使用 PostGIS `geography(Point, 4326)`
+- 当前实现主要依赖 `lat / lng`
+- `location_point` 更适合作为未来 PostgreSQL + PostGIS 扩展位
 - `listing_segment` 是当前系统视角下的主要归类，不是永久属性
 
-### 3.2 `phase_block`
-
-表达期数、座、栋等楼栋层级。
-
-```text
-phase_block
-- id
-- development_id
-- phase_name
-- block_name
-- tower_no
-- address_fragment
-- completion_year
-- floor_count
-- unit_count
-- created_at
-- updated_at
-```
-
-### 3.3 `unit_type`
-
-户型模板，便于跨楼盘对比。
-
-```text
-unit_type
-- id
-- development_id
-- phase_block_id
-- layout_signature
-- bedrooms
-- bathrooms
-- saleable_area_sqft
-- gross_area_sqft
-- balcony_area_sqft
-- utility_platform_area_sqft
-- orientation_default
-- floor_plan_asset_id
-- source_confidence
-- created_at
-- updated_at
-```
-
-建议：
-
-- `layout_signature` 用于归并相似户型，如 `3br-2ba-742sf-rect-living`
-
-### 3.4 `unit_instance`
-
-具体到楼层和室号的单位实例。
-
-```text
-unit_instance
-- id
-- development_id
-- phase_block_id
-- unit_type_id
-- floor_label
-- floor_numeric
-- flat
-- room_no
-- orientation
-- view_tags_json
-- saleable_area_sqft
-- gross_area_sqft
-- is_rooftop
-- is_special_unit
-- created_at
-- updated_at
-```
-
-### 3.5 `listing`
+### 4.2 `listing`
 
 市场上的一次在售记录，不等于 canonical 单位本身。
 
@@ -184,7 +139,7 @@ listing
 - `source + source_listing_id` 建唯一索引
 - `unit_instance_id` 允许为空，便于先落库再补识别
 
-### 3.6 `transaction`
+### 4.3 `transaction`
 
 成交事实，可来自 SRPE、官方统计、商业站点或手工录入。
 
@@ -210,7 +165,7 @@ transaction
 - updated_at
 ```
 
-### 3.7 `document`
+### 4.4 `document`
 
 原始文档及其解析结果。
 
@@ -234,7 +189,7 @@ document
 - updated_at
 ```
 
-### 3.8 `price_event`
+### 4.5 `price_event`
 
 用于房源流和价格历史追踪。
 
@@ -252,7 +207,7 @@ price_event
 - created_at
 ```
 
-### 3.9 `watchlist_item`
+### 4.6 `watchlist_item`
 
 用户自己的决策对象。
 
@@ -272,9 +227,129 @@ watchlist_item
 - updated_at
 ```
 
-## 4. 辅助表
+### 4.7 `launch_watch_project`
 
-### 4.1 `source_snapshot`
+未来 `1-3 年` 新盘 / 待抽签 / 近期开售观察池对象。
+
+```text
+launch_watch_project
+- id
+- source
+- source_project_id
+- display_name
+- district
+- region
+- launch_stage
+- expected_launch_window
+- official_site_url
+- srpe_url
+- linked_development_id
+- is_active
+- note
+- raw_payload_json
+- created_at
+- updated_at
+```
+
+### 4.8 `commercial_search_monitor`
+
+商业 source 的可运行搜索入口。
+
+```text
+commercial_search_monitor
+- id
+- source
+- name
+- search_url
+- scope_type
+- development_id
+- is_active
+- priority_level
+- default_limit
+- with_details
+- detail_limit
+- detail_policy
+- created_at
+- updated_at
+```
+
+### 4.9 目标增强表：`phase_block / unit_type / unit_instance`
+
+这三张表仍属于后续增强目标，用来更细地表达期数、座、户型模板与具体单位。
+
+### 4.9.1 `phase_block`
+
+表达期数、座、栋等楼栋层级。
+
+```text
+phase_block
+- id
+- development_id
+- phase_name
+- block_name
+- tower_no
+- address_fragment
+- completion_year
+- floor_count
+- unit_count
+- created_at
+- updated_at
+```
+
+### 4.9.2 `unit_type`
+
+户型模板，便于跨楼盘对比。
+
+```text
+unit_type
+- id
+- development_id
+- phase_block_id
+- layout_signature
+- bedrooms
+- bathrooms
+- saleable_area_sqft
+- gross_area_sqft
+- balcony_area_sqft
+- utility_platform_area_sqft
+- orientation_default
+- floor_plan_asset_id
+- source_confidence
+- created_at
+- updated_at
+```
+
+建议：
+
+- `layout_signature` 用于归并相似户型，如 `3br-2ba-742sf-rect-living`
+
+### 4.9.3 `unit_instance`
+
+具体到楼层和室号的单位实例。
+
+```text
+unit_instance
+- id
+- development_id
+- phase_block_id
+- unit_type_id
+- floor_label
+- floor_numeric
+- flat
+- room_no
+- orientation
+- view_tags_json
+- saleable_area_sqft
+- gross_area_sqft
+- is_rooftop
+- is_special_unit
+- created_at
+- updated_at
+```
+
+## 5. 辅助表
+
+### 5.1 `source_snapshot`
 
 保存抓取快照元数据。
 
@@ -294,7 +369,7 @@ source_snapshot
 - metadata_json
 ```
 
-### 4.2 `development_alias`
+### 5.2 `development_alias`
 
 强化 development 名称映射。
 
@@ -309,7 +384,7 @@ development_alias
 - created_at
 ```
 
-### 4.3 `address_mapping`
+### 5.3 `address_mapping`
 
 标准地址与原始地址的映射。
 
@@ -326,7 +401,7 @@ address_mapping
 - updated_at
 ```
 
-### 4.4 `policy_rule`
+### 5.4 `policy_rule`
 
 税费和政策规则。
 
@@ -344,7 +419,7 @@ policy_rule
 - updated_at
 ```
 
-### 4.5 `comparable_set`
+### 5.5 `comparable_set`
 
 可比盘结果缓存。
 
@@ -361,7 +436,7 @@ comparable_set
 - updated_at
 ```
 
-## 5. 主键与约束建议
+## 6. 主键与约束建议
 
 - 所有主表使用 UUID
 - `listing(source, source_listing_id)` 唯一
@@ -369,9 +444,9 @@ comparable_set
 - `document(source, source_doc_id)` 或 `content_hash` 做去重辅助
 - `development(name_zh, address_normalized)` 不能强制唯一，需保留人工裁决空间
 
-## 6. 索引建议
+## 7. 索引建议
 
-### 6.1 常规索引
+### 7.1 常规索引
 
 - `development(district, subdistrict, completion_year)`
 - `listing(status, listing_type, asking_price_hkd)`
@@ -379,17 +454,17 @@ comparable_set
 - `document(doc_type, published_at)`
 - `price_event(event_at, event_type)`
 
-### 6.2 地理索引
+### 7.2 地理索引
 
 - `development(location_point)` 上建 GiST 索引
 
-### 6.3 搜索索引
+### 7.3 搜索索引
 
 - `development(name_zh, name_en, aliases_json)` 的 FTS 向量
 - `listing(title)` 的 FTS 向量
 - `document(parsed_text)` 的 FTS 向量
 
-## 7. 版本化策略
+## 8. 版本化策略
 
 以下对象建议用“当前态 + 快照/事件”并存：
 
@@ -406,7 +481,7 @@ comparable_set
 
 首版优先第二种，复杂度更低。
 
-## 8. 统一字段口径
+## 9. 统一字段口径
 
 为避免后续混乱，以下口径建议在 schema 层固定：
 
@@ -416,16 +491,16 @@ comparable_set
 - 楼层同时保留原始字符串和可排序数值
 - `listing_type` 与 `transaction_type` 分离，不混用
 
-## 9. 状态机建议
+## 10. 状态机建议
 
-### 9.1 `listing.status`
+### 10.1 `listing.status`
 
 ```text
 unknown -> active -> pending -> sold
                 \-> withdrawn
 ```
 
-### 9.2 `watchlist_item.decision_stage`
+### 10.2 `watchlist_item.decision_stage`
 
 ```text
 watch -> visit -> negotiate -> buy
@@ -433,7 +508,7 @@ watch -> visit -> negotiate -> buy
    \-> reject
 ```
 
-## 10. 派生指标建议
+## 11. 派生指标建议
 
 以下指标不直接放主表原子字段，可通过物化视图或分析表生成：
 
@@ -443,7 +518,7 @@ watch -> visit -> negotiate -> buy
 - price_event 日增量统计
 - watchlist 决策摘要
 
-## 11. 首版最小表集
+## 12. 首版最小表集
 
 如果首版控制复杂度，只先建这些表：
 
