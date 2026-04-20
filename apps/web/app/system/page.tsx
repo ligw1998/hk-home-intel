@@ -2,294 +2,32 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-
-type RefreshJobRunSummary = {
-  id: string;
-  job_name: string;
-  source: string | null;
-  trigger_kind: string;
-  status: string;
-  started_at: string;
-  finished_at: string | null;
-  summary: Record<string, unknown> | null;
-  error_message: string | null;
-};
-
-type SystemOverview = {
-  development_count: number;
-  development_with_coordinates_count: number;
-  document_count: number;
-  watchlist_count: number;
-  commercial_listing_count: number;
-  price_event_count: number;
-  active_monitor_count: number;
-  attention_monitor_count: number;
-  readiness_status: string;
-  readiness_notes: string[];
-  latest_job: RefreshJobRunSummary | null;
-};
-
-type SchedulerTask = {
-  job_name: string;
-  source: string;
-  command: string;
-  url: string | null;
-  language: string;
-  limit: number | null;
-  with_details: boolean;
-  detect_withdrawn: boolean;
-  rotation_mode: string;
-  rotation_step: number | null;
-};
-
-type SchedulerPlan = {
-  name: string;
-  description: string;
-  guideline: string;
-  auto_run: boolean;
-  interval_minutes: number | null;
-  last_started_at: string | null;
-  last_finished_at: string | null;
-  last_status: string | null;
-  next_run_at: string | null;
-  due_now: boolean;
-  has_override: boolean;
-  tasks: SchedulerTask[];
-};
-
-type RunPlanResponse = {
-  status: string;
-  job_id: string;
-  plan: string;
-  message: string;
-};
-
-type RunDuePlansResponse = {
-  status: string;
-  due_plan_names: string[];
-  run_count: number;
-  job_ids: string[];
-};
-
-type SchedulerTaskDraft = {
-  job_name: string;
-  limit: string;
-  with_details: boolean;
-  detect_withdrawn: boolean;
-  rotation_mode: string;
-  rotation_step: string;
-};
-
-type SchedulerPlanDraft = {
-  auto_run: boolean;
-  interval_minutes: string;
-  tasks: SchedulerTaskDraft[];
-};
-
-type MonitorCriteria = {
-  listing_segments: string[];
-  max_budget_hkd: number | null;
-  bedroom_values: number[];
-  max_age_years: number | null;
-  default_limit: number | null;
-  detail_limit: number | null;
-  priority_level: number;
-  detail_policy: string;
-};
-
-type MonitorLatestRun = {
-  id: string;
-  status: string;
-  started_at: string;
-  finished_at: string | null;
-  summary: Record<string, unknown> | null;
-  error_message: string | null;
-};
-
-type CommercialSearchMonitor = {
-  id: string;
-  source: string;
-  name: string;
-  search_url: string;
-  scope_type: string;
-  development_name_hint: string | null;
-  district: string | null;
-  region: string | null;
-  note: string | null;
-  is_active: boolean;
-  with_details: boolean;
-  detect_withdrawn: boolean;
-  tags: string[];
-  criteria: MonitorCriteria;
-  updated_at: string;
-  health_status: string;
-  latest_success_at: string | null;
-  latest_failure_at: string | null;
-  recent_failure_count: number;
-  latest_run: MonitorLatestRun | null;
-};
-
-type MonitorDraft = {
-  source: string;
-  name: string;
-  search_url: string;
-  scope_type: string;
-  development_name_hint: string;
-  district: string;
-  region: string;
-  note: string;
-  is_active: boolean;
-  with_details: boolean;
-  detect_withdrawn: boolean;
-  default_limit: string;
-  detail_limit: string;
-  priority_level: string;
-  detail_policy: string;
-};
-
-type MonitorRecommendedConfig = {
-  with_details: boolean;
-  default_limit: string;
-  detail_limit: string;
-  priority_level: string;
-  detail_policy: string;
-};
+import type {
+  CommercialSearchMonitor,
+  MonitorDraft,
+  RefreshJobRunSummary,
+  RunDuePlansResponse,
+  RunPlanResponse,
+  SchedulerPlan,
+  SchedulerPlanDraft,
+  SchedulerTaskDraft,
+  SystemOverview,
+} from "./system-types";
+import {
+  buildMonitorDraft,
+  describeJob,
+  describeTask,
+  extractErrorMessage,
+  formatDateTime,
+  mergeMonitorDrafts,
+  mergePlanDrafts,
+  monitorHealthLabel,
+  recommendedMonitorConfig,
+  sourceGuidance,
+} from "./system-utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
-
-async function extractErrorMessage(response: Response, fallback: string): Promise<string> {
-  try {
-    const payload = (await response.json()) as { detail?: string };
-    if (payload.detail) {
-      return `${fallback}: ${payload.detail}`;
-    }
-  } catch {
-    // Ignore JSON parse errors and fall back to status text.
-  }
-  return `${fallback}: HTTP ${response.status}`;
-}
-
-function formatDateTime(value: string | null): string {
-  if (!value) {
-    return "In progress";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(parsed);
-}
-
-function describeJob(item: RefreshJobRunSummary): string {
-  if (item.job_name.startsWith("refresh_plan:")) {
-    return "refresh plan wrapper";
-  }
-  if (item.trigger_kind === "plan") {
-    return "plan task";
-  }
-  return item.trigger_kind;
-}
-
-function describeTask(task: SchedulerTask): string {
-  const parts = [task.job_name, task.source];
-  if (task.command === "srpe_refresh") {
-    parts.push(task.language);
-  }
-  if (task.limit !== null) {
-    parts.push(`limit ${task.limit}`);
-  }
-  if (task.with_details) {
-    parts.push("with details");
-  }
-  if (task.detect_withdrawn) {
-    parts.push("detect withdrawn");
-  }
-  if (task.rotation_mode === "cycle") {
-    parts.push(`rotate by ${task.rotation_step ?? task.limit ?? "window"}`);
-  }
-  return parts.join(" / ");
-}
-
-function buildPlanDraft(plan: SchedulerPlan): SchedulerPlanDraft {
-  return {
-    auto_run: plan.auto_run,
-    interval_minutes: plan.interval_minutes?.toString() ?? "",
-      tasks: plan.tasks.map((task) => ({
-        job_name: task.job_name,
-        limit: task.limit?.toString() ?? "",
-        with_details: task.with_details,
-        detect_withdrawn: task.detect_withdrawn,
-        rotation_mode: task.rotation_mode,
-        rotation_step: task.rotation_step?.toString() ?? "",
-      })),
-  };
-}
-
-function buildMonitorDraft(item: CommercialSearchMonitor): MonitorDraft {
-  return {
-    source: item.source,
-    name: item.name,
-    search_url: item.search_url,
-    scope_type: item.scope_type,
-    development_name_hint: item.development_name_hint ?? "",
-    district: item.district ?? "",
-    region: item.region ?? "",
-    note: item.note ?? "",
-    is_active: item.is_active,
-    with_details: item.with_details,
-    detect_withdrawn: item.detect_withdrawn,
-    default_limit: item.criteria.default_limit?.toString() ?? "",
-    detail_limit: item.criteria.detail_limit?.toString() ?? "",
-    priority_level: item.criteria.priority_level?.toString() ?? "50",
-    detail_policy: item.criteria.detail_policy ?? "always",
-  };
-}
-
-function monitorHealthLabel(value: string): string {
-  switch (value) {
-    case "healthy":
-      return "healthy";
-    case "warning":
-      return "warning";
-    case "failing":
-      return "failing";
-    case "stale":
-      return "stale";
-    case "paused":
-      return "paused";
-    default:
-      return "never run";
-  }
-}
-
-function recommendedMonitorConfig(source: string): MonitorRecommendedConfig {
-  if (source === "ricacorp") {
-    return {
-      with_details: false,
-      default_limit: "30",
-      detail_limit: "",
-      priority_level: "55",
-      detail_policy: "never",
-    };
-  }
-  return {
-    with_details: true,
-    default_limit: "20",
-    detail_limit: "8",
-    priority_level: "70",
-    detail_policy: "priority_only",
-  };
-}
-
-function monitorStrategyLabel(criteria: MonitorCriteria, withDetails: boolean): string {
+function monitorStrategyLabel(criteria: CommercialSearchMonitor["criteria"], withDetails: boolean): string {
   const detailMode = !withDetails
     ? "search only"
     : criteria.detail_policy === "always"
@@ -300,20 +38,15 @@ function monitorStrategyLabel(criteria: MonitorCriteria, withDetails: boolean): 
   return `${detailMode} / priority ${criteria.priority_level} / search ${criteria.default_limit ?? "all"}`;
 }
 
-function sourceGuidance(source: string): string {
-  if (source === "ricacorp") {
-    return "Prefer broader search-page coverage and lighter refreshes. Keep detail off by default unless a source-specific parser is added later.";
-  }
-  return "Prefer a moderate search limit and high-priority detail enrichment. Use detail only for priority monitors to avoid slow full-page refreshes.";
-}
-
 export default function SystemPage() {
   const [overview, setOverview] = useState<SystemOverview | null>(null);
   const [jobs, setJobs] = useState<RefreshJobRunSummary[]>([]);
   const [plans, setPlans] = useState<SchedulerPlan[]>([]);
   const [planDrafts, setPlanDrafts] = useState<Record<string, SchedulerPlanDraft>>({});
+  const [dirtyPlanDrafts, setDirtyPlanDrafts] = useState<Record<string, boolean>>({});
   const [monitors, setMonitors] = useState<CommercialSearchMonitor[]>([]);
   const [monitorDrafts, setMonitorDrafts] = useState<Record<string, MonitorDraft>>({});
+  const [dirtyMonitorDrafts, setDirtyMonitorDrafts] = useState<Record<string, boolean>>({});
   const [newMonitor, setNewMonitor] = useState<MonitorDraft>({
     source: "centanet",
     name: "",
@@ -370,11 +103,9 @@ export default function SystemPage() {
           setOverview(overviewPayload);
           setJobs(jobsPayload);
           setPlans(plansPayload);
-          setPlanDrafts(Object.fromEntries(plansPayload.map((plan) => [plan.name, buildPlanDraft(plan)])));
           setMonitors(monitorsPayload);
-          setMonitorDrafts(
-            Object.fromEntries(monitorsPayload.map((item) => [item.id, buildMonitorDraft(item)])),
-          );
+          setPlanDrafts((current) => mergePlanDrafts(plansPayload, current, {}));
+          setMonitorDrafts((current) => mergeMonitorDrafts(monitorsPayload, current, {}));
           setError(null);
         }
       } catch (err) {
@@ -405,10 +136,10 @@ export default function SystemPage() {
     setJobs(nextJobs);
     const nextPlans = (await plansResponse.json()) as SchedulerPlan[];
     setPlans(nextPlans);
-    setPlanDrafts(Object.fromEntries(nextPlans.map((plan) => [plan.name, buildPlanDraft(plan)])));
     const nextMonitors = (await monitorsResponse.json()) as CommercialSearchMonitor[];
     setMonitors(nextMonitors);
-    setMonitorDrafts(Object.fromEntries(nextMonitors.map((item) => [item.id, buildMonitorDraft(item)])));
+    setPlanDrafts((current) => mergePlanDrafts(nextPlans, current, dirtyPlanDrafts));
+    setMonitorDrafts((current) => mergeMonitorDrafts(nextMonitors, current, dirtyMonitorDrafts));
     return nextJobs;
   }
 
@@ -511,6 +242,7 @@ export default function SystemPage() {
   }
 
   function updatePlanDraft(planName: string, patch: Partial<SchedulerPlanDraft>) {
+    setDirtyPlanDrafts((current) => ({ ...current, [planName]: true }));
     setPlanDrafts((current) => ({
       ...current,
       [planName]: {
@@ -525,6 +257,7 @@ export default function SystemPage() {
     taskJobName: string,
     patch: Partial<SchedulerTaskDraft>,
   ) {
+    setDirtyPlanDrafts((current) => ({ ...current, [planName]: true }));
     setPlanDrafts((current) => {
       const existing = current[planName];
       if (!existing) {
@@ -569,6 +302,7 @@ export default function SystemPage() {
       if (!response.ok) {
         throw new Error(await extractErrorMessage(response, "scheduler override failed"));
       }
+      setDirtyPlanDrafts((current) => ({ ...current, [planName]: false }));
       await reloadSystem();
       setInfo(`Saved plan override for ${planName}.`);
       setError(null);
@@ -590,6 +324,7 @@ export default function SystemPage() {
       if (!response.ok) {
         throw new Error(await extractErrorMessage(response, "scheduler reset failed"));
       }
+      setDirtyPlanDrafts((current) => ({ ...current, [planName]: false }));
       await reloadSystem();
       setInfo(`Reset override for ${planName}.`);
       setError(null);
@@ -602,6 +337,7 @@ export default function SystemPage() {
   }
 
   function updateMonitorDraft(monitorId: string, patch: Partial<MonitorDraft>) {
+    setDirtyMonitorDrafts((current) => ({ ...current, [monitorId]: true }));
     setMonitorDrafts((current) => ({
       ...current,
       [monitorId]: {
@@ -737,6 +473,7 @@ export default function SystemPage() {
       if (!response.ok) {
         throw new Error(await extractErrorMessage(response, "save monitor failed"));
       }
+      setDirtyMonitorDrafts((current) => ({ ...current, [monitorId]: false }));
       await reloadSystem();
       setInfo(`Saved monitor ${draft.name}.`);
       setError(null);
@@ -758,6 +495,11 @@ export default function SystemPage() {
       if (!response.ok) {
         throw new Error(await extractErrorMessage(response, "delete monitor failed"));
       }
+      setDirtyMonitorDrafts((current) => {
+        const next = { ...current };
+        delete next[monitorId];
+        return next;
+      });
       await reloadSystem();
       setInfo("Commercial search monitor deleted.");
       setError(null);

@@ -46,6 +46,15 @@ const SIGNAL_BUCKETS = [
   "manual_watch",
   "other_watch",
 ];
+const SIGNAL_BUCKET_DESCRIPTIONS: Record<string, string> = {
+  landsd_pending: "Earliest official pre-sale pending signals.",
+  landsd_issued: "Official consent-issued projects that are moving closer to sale.",
+  recent_pricing: "Recent price list or sales arrangement activity on SRPE.",
+  recent_brochure: "Recent brochure activity without stronger pricing signal yet.",
+  srpe_active: "Still inside the official first-hand selling chain, but weaker than recent pricing.",
+  manual_watch: "Manually seeded watch items and curated observations.",
+  other_watch: "Residual watch items that do not fit the stronger official buckets.",
+};
 
 function formatUpdatedAt(value: string): string {
   return value.slice(0, 16).replace("T", " ");
@@ -62,6 +71,16 @@ function stageLabel(value: string): string {
     return "Selling";
   }
   return value;
+}
+
+function signalFilterLabel(value: string): string {
+  if (value === "all") {
+    return "All signals";
+  }
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export default function LaunchWatchPage() {
@@ -133,11 +152,49 @@ export default function LaunchWatchPage() {
     });
   }, [filterSignal, filterStage, items, search]);
 
+  const groupedFiltered = useMemo(() => {
+    const sorted = [...filtered].sort((left, right) => {
+      if (left.signal_rank !== right.signal_rank) {
+        return left.signal_rank - right.signal_rank;
+      }
+      if (left.signal_bucket !== right.signal_bucket) {
+        return left.signal_bucket.localeCompare(right.signal_bucket);
+      }
+      if (left.updated_at !== right.updated_at) {
+        return right.updated_at.localeCompare(left.updated_at);
+      }
+      return left.display_name.localeCompare(right.display_name, "zh-Hant");
+    });
+
+    const sections: Array<{
+      bucket: string;
+      label: string;
+      description: string;
+      rank: number;
+      items: LaunchWatchItem[];
+    }> = [];
+    for (const item of sorted) {
+      const current = sections[sections.length - 1];
+      if (current && current.bucket === item.signal_bucket) {
+        current.items.push(item);
+        continue;
+      }
+      sections.push({
+        bucket: item.signal_bucket,
+        label: item.signal_label,
+        description: SIGNAL_BUCKET_DESCRIPTIONS[item.signal_bucket] ?? "General launch-watch signal.",
+        rank: item.signal_rank,
+        items: [item],
+      });
+    }
+    return sections;
+  }, [filtered]);
+
   const stageCounts = useMemo(() => {
     return {
       total: items.length,
       watch: items.filter((item) => item.launch_stage === "launch_watch").length,
-      selling: items.filter((item) => item.launch_stage === "selling" || item.launch_stage === "watch-selling").length,
+      selling: items.filter((item) => item.launch_stage === "selling" || item.launch_stage === "watch_selling").length,
     };
   }, [items]);
 
@@ -209,7 +266,7 @@ export default function LaunchWatchPage() {
             <select value={filterSignal} onChange={(event) => setFilterSignal(event.target.value)}>
               {SIGNAL_BUCKETS.map((value) => (
                 <option key={value} value={value}>
-                  {value}
+                  {signalFilterLabel(value)}
                 </option>
               ))}
             </select>
@@ -245,72 +302,85 @@ export default function LaunchWatchPage() {
               </p>
             </article>
           ) : null}
-          {filtered.map((item) => (
-            <article key={item.id} className="panel launch-watch-card">
-              <div className="launch-watch-card-head">
+          {groupedFiltered.map((section) => (
+            <div key={section.bucket} className="launch-watch-section">
+              <div className="launch-watch-section-head">
                 <div>
-                  <h2>{item.display_name}</h2>
-                  <p className="muted">
-                    {[item.district, item.region].filter(Boolean).join(" / ") || "Unknown district"}{" "}
-                    {item.expected_launch_window ? `· ${item.expected_launch_window}` : ""}
-                  </p>
+                  <h2>{section.label}</h2>
+                  <p className="muted">{section.description}</p>
                 </div>
-                <div className="launch-watch-badge-stack">
-                  <span
-                    className={`launch-watch-badge launch-watch-badge-signal launch-watch-badge-signal-${item.signal_bucket}`}
-                  >
-                    {item.signal_label}
-                  </span>
-                <span className={`launch-watch-badge launch-watch-badge-${item.launch_stage.replace(/[^a-z]+/g, "-")}`}>
-                  {stageLabel(item.launch_stage)}
-                </span>
-                </div>
+                <span className="workflow-chip">{section.items.length} project(s)</span>
               </div>
-              <div className="development-summary-grid">
-                <div className="development-summary-card">
-                  <strong>Source</strong>
-                  <span>{item.source}</span>
-                </div>
-                <div className="development-summary-card">
-                  <strong>Linked Development</strong>
-                  <span>{item.linked_development_name ?? "Not linked yet"}</span>
-                </div>
+              <div className="launch-watch-section-grid">
+                {section.items.map((item) => (
+                  <article key={item.id} className="panel launch-watch-card">
+                    <div className="launch-watch-card-head">
+                      <div>
+                        <h2>{item.display_name}</h2>
+                        <p className="muted">
+                          {[item.district, item.region].filter(Boolean).join(" / ") || "Unknown district"}{" "}
+                          {item.expected_launch_window ? `· ${item.expected_launch_window}` : ""}
+                        </p>
+                      </div>
+                      <div className="launch-watch-badge-stack">
+                        <span
+                          className={`launch-watch-badge launch-watch-badge-signal launch-watch-badge-signal-${item.signal_bucket}`}
+                        >
+                          {item.signal_label}
+                        </span>
+                        <span className={`launch-watch-badge launch-watch-badge-${item.launch_stage.replace(/[^a-z]+/g, "-")}`}>
+                          {stageLabel(item.launch_stage)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="development-summary-grid">
+                      <div className="development-summary-card">
+                        <strong>Source</strong>
+                        <span>{item.source}</span>
+                      </div>
+                      <div className="development-summary-card">
+                        <strong>Linked Development</strong>
+                        <span>{item.linked_development_name ?? "Not linked yet"}</span>
+                      </div>
+                    </div>
+                    {item.note ? <p className="muted">{item.note}</p> : null}
+                    {item.tags.length > 0 ? (
+                      <div className="launch-watch-tag-row">
+                        {item.tags.map((tag, index) => (
+                          <span key={`${item.id}-${tag}-${index}`} className="workflow-chip">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="hero-actions">
+                      {item.official_site_url ? (
+                        <a href={item.official_site_url} target="_blank" rel="noreferrer">
+                          Official site
+                        </a>
+                      ) : null}
+                      {item.source_url ? (
+                        <a href={item.source_url} target="_blank" rel="noreferrer">
+                          Source signal
+                        </a>
+                      ) : null}
+                      {item.srpe_url ? (
+                        <a href={item.srpe_url} target="_blank" rel="noreferrer">
+                          SRPE / SRPA
+                        </a>
+                      ) : null}
+                      {item.linked_development_id ? (
+                        <Link href={`/developments/${item.linked_development_id}`}>Open development</Link>
+                      ) : null}
+                    </div>
+                    <p className="muted">Updated {formatUpdatedAt(item.updated_at)}</p>
+                    {item.coordinate_mode === "approximate" ? (
+                      <p className="muted">Map position is approximate.</p>
+                    ) : null}
+                  </article>
+                ))}
               </div>
-              {item.note ? <p className="muted">{item.note}</p> : null}
-              {item.tags.length > 0 ? (
-                <div className="launch-watch-tag-row">
-                  {item.tags.map((tag, index) => (
-                    <span key={`${item.id}-${tag}-${index}`} className="workflow-chip">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <div className="hero-actions">
-                {item.official_site_url ? (
-                  <a href={item.official_site_url} target="_blank" rel="noreferrer">
-                    Official site
-                  </a>
-                ) : null}
-                {item.source_url ? (
-                  <a href={item.source_url} target="_blank" rel="noreferrer">
-                    Source signal
-                  </a>
-                ) : null}
-                {item.srpe_url ? (
-                  <a href={item.srpe_url} target="_blank" rel="noreferrer">
-                    SRPE / SRPA
-                  </a>
-                ) : null}
-                {item.linked_development_id ? (
-                  <Link href={`/developments/${item.linked_development_id}`}>Open development</Link>
-                ) : null}
-              </div>
-              <p className="muted">Updated {formatUpdatedAt(item.updated_at)}</p>
-              {item.coordinate_mode === "approximate" ? (
-                <p className="muted">Map position is approximate.</p>
-              ) : null}
-            </article>
+            </div>
           ))}
         </section>
       </section>

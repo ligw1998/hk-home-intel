@@ -68,7 +68,7 @@ curl http://127.0.0.1:8000/api/v1/health
 如果你现在想做一轮“围绕偏好盘扩量”的标准流程，直接按这个顺序：
 
 ```bash
-conda run -n py311 hhi-worker import-srpe-index --lang en --limit 1000 --offset 0
+conda run -n py311 hhi-worker import-srpe-index --lang en --limit 100 --offset 0
 conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source centanet --limit 20 --validate --create-monitors
 conda run -n py311 hhi-worker set-commercial-monitors-active --source centanet --auto-discovered
 conda run -n py311 hhi-worker discover-commercial-monitor-candidates --source ricacorp --limit 20 --validate --create-monitors
@@ -80,6 +80,7 @@ conda run -n py311 hhi-worker run-commercial-search-monitors --source ricacorp -
 如果你还想把未来新盘观察池一起刷新，再加：
 
 ```bash
+conda run -n py311 hhi-worker sync-launch-watch-config
 conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all
 conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs
 ```
@@ -97,7 +98,7 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active
 最常用：
 
 ```bash
-conda run -n py311 hhi-worker import-srpe-index --lang en --limit 1000 --offset 0
+conda run -n py311 hhi-worker import-srpe-index --lang en --limit 100 --offset 0
 ```
 
 作用：
@@ -105,6 +106,11 @@ conda run -n py311 hhi-worker import-srpe-index --lang en --limit 1000 --offset 
 - 从 `SRPE` 官方住宅项目索引导入一批 development
 - 补官方名称、地址、经纬度、document 元信息
 - 现在也会补一个低成本年份 proxy，用于 `/map` 的 `Max Age (Years)` 更早生效
+- 导入后的 development 摘要会直接带：
+  - `source_coverage`
+  - `coverage_status`
+  - `coverage_notes`
+  - `data_gap_flags`
 
 注意：
 
@@ -325,6 +331,8 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-do
 
 - `/launch-watch`
 - `/map` 里打开 `Show launch-watch`
+- `/launch-watch` 默认按更强的官方信号优先分组
+- `/map` 右侧 `Selected` 面板会显示 linked development 与 coverage / data-gap
 
 ## 5. Daily Maintenance
 

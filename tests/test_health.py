@@ -314,6 +314,53 @@ def test_shortlist_returns_ranked_candidates_with_reasons(isolated_app: TestClie
     assert payload["items"][0]["acquisition_gap_hkd"] is None or payload["items"][0]["acquisition_gap_hkd"] >= 0
 
 
+def test_shortlist_keeps_unknown_age_candidate_when_other_signals_are_strong(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        candidate = Development(
+            source="centanet",
+            source_external_id="short-unknown-age",
+            name_zh="年龄未知候选盘",
+            district="Kai Tak",
+            region="Kowloon",
+            completion_year=None,
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.HIGH,
+            lat=22.32,
+            lng=114.21,
+        )
+        session.add(candidate)
+        session.flush()
+        session.add(
+            Listing(
+                development_id=candidate.id,
+                source="centanet",
+                source_listing_id="short-unknown-age-1",
+                listing_type=ListingType.SECOND_HAND,
+                asking_price_hkd=12_000_000,
+                price_per_sqft=17_500,
+                bedrooms=2,
+                saleable_area_sqft=650,
+                status=ListingStatus.ACTIVE,
+            )
+        )
+        session.add(
+            PriceEvent(
+                source="centanet",
+                development_id=candidate.id,
+                listing_id=None,
+                event_type=PriceEventType.NEW_LISTING,
+                new_price_hkd=12_000_000,
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/shortlist")
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(item["display_name"] == "年龄未知候选盘" for item in payload["items"])
+
+
 def test_tax_estimate_endpoint_returns_avd_breakdown(isolated_app: TestClient) -> None:
     response = isolated_app.get(
         "/api/v1/policies/tax-estimate?price_hkd=12800000&transaction_date=2026-04-16"
@@ -391,6 +438,7 @@ def test_development_detail_exposes_market_snapshot(isolated_app: TestClient) ->
             listing_type=ListingType.SECOND_HAND,
             asking_price_hkd=13_500_000,
             bedrooms=2,
+            saleable_area_sqft=650,
             status=ListingStatus.ACTIVE,
         )
         session.add(listing)
@@ -442,6 +490,9 @@ def test_development_detail_exposes_market_snapshot(isolated_app: TestClient) ->
     assert coverage["centanet"]["active_listing_count"] == 1
     assert coverage["srpe"]["document_count"] == 1
     assert coverage["ricacorp"]["transaction_count"] == 1
+    assert payload["coverage_status"] == "rich"
+    assert "Commercial coverage: centanet, ricacorp." in payload["coverage_notes"]
+    assert payload["data_gap_flags"] == []
 
 
 def test_development_price_history_endpoint_returns_grouped_points(isolated_app: TestClient) -> None:

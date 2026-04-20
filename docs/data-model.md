@@ -102,6 +102,12 @@ development
 - 当前实现主要依赖 `lat / lng`
 - `location_point` 更适合作为未来 PostgreSQL + PostGIS 扩展位
 - `listing_segment` 是当前系统视角下的主要归类，不是永久属性
+- API 层会基于 `development + listing + document + transaction` 再聚合出：
+  - `source_coverage`
+  - `coverage_status`
+  - `coverage_notes`
+  - `data_gap_flags`
+  这些属于派生摘要，而不是持久化主表字段
 
 ### 4.2 `listing`
 

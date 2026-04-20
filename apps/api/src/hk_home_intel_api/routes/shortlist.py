@@ -60,6 +60,15 @@ def _decision_band(score: int) -> str:
     return "weak_fit"
 
 
+def _days_since_event(timestamp: str) -> int | None:
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return None
+    reference = datetime.now(parsed.tzinfo) if parsed.tzinfo is not None else datetime.now()
+    return (reference - parsed).days
+
+
 def _score_development(
     item: DevelopmentSummary,
     *,
@@ -184,10 +193,7 @@ def _score_development(
         risks.append("当前缺少活跃盘源，只能先看 development 级信息。")
 
     if item.latest_listing_event_at:
-        try:
-            days_since_event = (datetime.now() - datetime.fromisoformat(item.latest_listing_event_at)).days
-        except ValueError:
-            days_since_event = None
+        days_since_event = _days_since_event(item.latest_listing_event_at)
         if days_since_event is not None:
             if days_since_event <= 7:
                 score += 6
@@ -261,12 +267,12 @@ def shortlist_developments(
             continue
         if summary.active_listing_min_price_hkd is not None and summary.active_listing_min_price_hkd > max_budget_hkd:
             continue
-        if parsed_bedroom_values and not any(
+        if parsed_bedroom_values and summary.active_listing_bedroom_options and not any(
             value in summary.active_listing_bedroom_options for value in parsed_bedroom_values
         ):
             continue
-        if summary.listing_segment == ListingSegment.SECOND_HAND:
-            if summary.age_years is None or summary.age_years > extended_age_years:
+        if summary.listing_segment == ListingSegment.SECOND_HAND and summary.age_years is not None:
+            if summary.age_years > extended_age_years:
                 continue
         if summary.active_listing_saleable_area_values and not any(
             min_saleable_area_sqft <= value <= max_saleable_area_sqft
@@ -317,6 +323,8 @@ def shortlist_developments(
                 personal_score=watchlist_item.personal_score if watchlist_item else None,
             )
         )
+
+    serialized = [item for item in serialized if item.decision_band != "weak_fit"]
 
     serialized.sort(
         key=lambda item: (

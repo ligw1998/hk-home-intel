@@ -50,6 +50,9 @@ class DevelopmentSummary(BaseModel):
     active_listing_bedroom_mix: dict[str, int]
     active_listing_source_counts: dict[str, int]
     source_coverage: list["DevelopmentSourceCoverage"]
+    coverage_status: str
+    coverage_notes: list[str]
+    data_gap_flags: list[str]
     latest_listing_event_at: str | None
 
 
@@ -201,6 +204,39 @@ def _serialize_development(
         if source not in seen_sources and url:
             source_links.append({"source": source, "url": str(url)})
             seen_sources.add(source)
+    data_gap_flags: list[str] = []
+    coverage_notes: list[str] = []
+    source_names = {coverage.source for coverage in source_coverage}
+    commercial_sources = sorted(source for source in {"centanet", "ricacorp"} if source in source_names)
+    if commercial_sources:
+        coverage_notes.append(f"Commercial coverage: {', '.join(commercial_sources)}.")
+    else:
+        coverage_notes.append("Commercial coverage still missing.")
+        data_gap_flags.append("missing_commercial_source")
+    if item.source == "srpe" and not commercial_sources:
+        data_gap_flags.append("srpe_only")
+    if item.lat is None or item.lng is None:
+        coverage_notes.append("Coordinates still missing.")
+        data_gap_flags.append("missing_coordinates")
+    if item.completion_year is None:
+        coverage_notes.append("Completion / age still approximate or missing.")
+        data_gap_flags.append("missing_completion_year")
+    active_listing_count = int(metrics.get("active_listing_count", 0))
+    if active_listing_count == 0:
+        coverage_notes.append("No active listing rows yet.")
+        data_gap_flags.append("missing_active_listing")
+    if active_listing_count > 0 and not metrics.get("active_listing_bedroom_options"):
+        coverage_notes.append("Bedroom mix still incomplete.")
+        data_gap_flags.append("missing_bedroom_coverage")
+    if active_listing_count > 0 and not metrics.get("active_listing_saleable_area_values"):
+        coverage_notes.append("Saleable area coverage still incomplete.")
+        data_gap_flags.append("missing_saleable_area_coverage")
+    if active_listing_count > 0 and commercial_sources:
+        coverage_status = "rich"
+    elif active_listing_count > 0 or commercial_sources:
+        coverage_status = "partial"
+    else:
+        coverage_status = "baseline_only"
     return DevelopmentSummary(
         id=item.id,
         source_url=item.source_url,
@@ -223,7 +259,7 @@ def _serialize_development(
         source_confidence=item.source_confidence,
         lat=item.lat,
         lng=item.lng,
-        active_listing_count=int(metrics.get("active_listing_count", 0)),
+        active_listing_count=active_listing_count,
         active_listing_min_price_hkd=(
             float(metrics["active_listing_min_price_hkd"])
             if metrics.get("active_listing_min_price_hkd") is not None
@@ -251,6 +287,9 @@ def _serialize_development(
         active_listing_bedroom_mix=dict(metrics.get("active_listing_bedroom_mix", {})),
         active_listing_source_counts=dict(metrics.get("active_listing_source_counts", {})),
         source_coverage=source_coverage,
+        coverage_status=coverage_status,
+        coverage_notes=coverage_notes[:4],
+        data_gap_flags=data_gap_flags,
         latest_listing_event_at=(
             metrics["latest_listing_event_at"].isoformat()
             if metrics.get("latest_listing_event_at") is not None

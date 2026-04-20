@@ -12,38 +12,8 @@ import {
 import type { LatLngBoundsExpression } from "leaflet";
 
 import { formatListingSegment } from "../lib/segment";
-
-type DevelopmentSummary = {
-  id: string;
-  source_url: string | null;
-  source_links: { source: string; url: string }[];
-  display_name: string | null;
-  district: string | null;
-  region: string | null;
-  completion_year: number | null;
-  listing_segment: string;
-  lat: number | null;
-  lng: number | null;
-};
-
-type LaunchWatchMapItem = {
-  id: string;
-  display_name: string;
-  district: string | null;
-  region: string | null;
-  expected_launch_window: string | null;
-  launch_stage: string;
-  signal_bucket: string;
-  signal_label: string;
-  official_site_url: string | null;
-  source_url: string | null;
-  linked_development_id: string | null;
-  linked_development_name: string | null;
-  note: string | null;
-  lat: number | null;
-  lng: number | null;
-  coordinate_mode: string;
-};
+import type { DevelopmentSummary, LaunchWatchMapItem } from "../map/map-types";
+import { coverageLabel } from "../map/map-utils";
 
 function segmentColor(segment: string): string {
   if (segment === "new") {
@@ -292,6 +262,8 @@ export function DevelopmentLeafletMap({
                     {item.region ? ` / ${item.region}` : ""}
                   </span>
                   <span>{formatListingSegment(item.listing_segment)}</span>
+                  <span>{coverageLabel(item.coverage_status)}</span>
+                  {item.coverage_notes[0] ? <span>{item.coverage_notes[0]}</span> : null}
                   {watchlistStage ? <span>Watchlist / {watchlistStage}</span> : null}
                   <div className="map-popup-actions">
                     <Link href={`/developments/${item.id}`} className="action-link">

@@ -244,6 +244,8 @@ hk-home-intel/
   - `/shortlist`
   - `/launch-watch`
   - `/system`
+- `/launch-watch` 已从平铺列表升级为按官方信号强度分组的观察工作台
+- `/map` 的 `Selected` 面板会直接暴露 development coverage / data-gap
 
 ## 8. 核心数据流
 

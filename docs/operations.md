@@ -189,6 +189,15 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active --
 conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active
 ```
 
+当前查看顺序建议：
+
+1. 先看 `/launch-watch`
+   - 默认已经按强信号优先分组
+2. 再到 `/map`
+   - 打开 `Show launch-watch`
+   - 用右侧 `Selected` 面板看 linked development 和 coverage / data-gap
+3. 再决定下一步是继续观察，还是补 `Centanet / Ricacorp` monitor
+
 建议的 monitor 扩量顺序：
 
 1. 先增加官方 `SRPE` development 覆盖，用来补新盘 / 一手余货底座

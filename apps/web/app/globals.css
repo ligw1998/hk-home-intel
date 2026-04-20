@@ -1029,6 +1029,28 @@ a:hover {
   gap: 14px;
 }
 
+.launch-watch-section {
+  display: grid;
+  gap: 12px;
+}
+
+.launch-watch-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.launch-watch-section-head h2 {
+  margin: 0 0 6px;
+}
+
+.launch-watch-section-grid {
+  display: grid;
+  gap: 14px;
+}
+
 .launch-watch-card {
   display: grid;
   gap: 14px;
@@ -1467,6 +1489,10 @@ a:hover {
 
   .launch-watch-badge-stack {
     justify-items: start;
+  }
+
+  .launch-watch-section-head {
+    flex-direction: column;
   }
 
   .watchlist-editor {

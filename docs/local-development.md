@@ -330,6 +330,17 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-do
 
 - `GET /api/v1/launch-watch`
 
+当前 UI 默认行为补充：
+
+- `/launch-watch`
+  - 默认按 signal bucket 分组，优先显示更强的官方信号
+- `/map`
+  - `Selected` 面板会显示 development 的：
+    - `coverage_status`
+    - `coverage_notes`
+    - `data_gap_flags`
+  - 方便你判断一个盘当前是只有 `SRPE baseline`，还是已经补到商业源
+
 如果你想在当前阶段直接并排比较多个 development，可打开：
 
 ```text

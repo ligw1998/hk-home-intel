@@ -78,6 +78,9 @@ type DevelopmentDetail = {
   active_listing_bedroom_options: number[];
   active_listing_bedroom_mix: Record<string, number>;
   active_listing_source_counts: Record<string, number>;
+  coverage_status: string;
+  coverage_notes: string[];
+  data_gap_flags: string[];
   latest_listing_event_at: string | null;
   document_count: number;
   transaction_count: number;
@@ -288,6 +291,16 @@ function formatBedroomLabel(value: number | null): string {
   return `${value}房`;
 }
 
+function coverageLabel(value: string): string {
+  if (value === "rich") {
+    return "Rich coverage";
+  }
+  if (value === "partial") {
+    return "Partial coverage";
+  }
+  return "Baseline only";
+}
+
 function summarizeEvents(items: ListingFeedItem[]): Array<{ label: string; value: number }> {
   const total = items.length;
   const newListings = items.filter((item) => item.event_type === "new_listing").length;
@@ -417,7 +430,23 @@ export default async function DevelopmentDetailPage({
                     : "Pending geocode"}
                 </dd>
               </div>
+              <div>
+                <dt>Coverage</dt>
+                <dd>{coverageLabel(development.coverage_status)}</dd>
+              </div>
             </dl>
+            {development.coverage_notes.length > 0 ? (
+              <ul className="decision-list">
+                {development.coverage_notes.map((note) => <li key={note}>{note}</li>)}
+              </ul>
+            ) : null}
+            {development.data_gap_flags.length > 0 ? (
+              <div className="launch-watch-tag-row">
+                {development.data_gap_flags.map((flag) => (
+                  <span key={flag} className="workflow-chip">{flag}</span>
+                ))}
+              </div>
+            ) : null}
           </article>
 
           <article className="panel">

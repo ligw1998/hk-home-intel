@@ -192,6 +192,12 @@ source:
   - `SRPE recent docs`
   - `SRPE active`
 - `Housing Bureau` 仍更适合作为宏观供应背景层，而不是当前项目级观察池的主清单
+- 当前 UI 会把这些官方观察信号进一步分成：
+  - `LandsD Pending`
+  - `LandsD Issued`
+  - `Recent Pricing`
+  - `Recent Brochure`
+  - `SRPE Active`
 
 ### Phase 3
 

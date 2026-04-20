@@ -94,19 +94,27 @@ def list_launch_watch_projects(
         stmt = stmt.where(LaunchWatchProject.region == region)
 
     rows = session.scalars(stmt).all()
+    linked_development_ids = list(
+        dict.fromkeys(row.linked_development_id for row in rows if row.linked_development_id)
+    )
+    linked_developments = {}
+    if linked_development_ids:
+        linked_developments = {
+            development.id: development
+            for development in session.scalars(
+                select(Development).where(Development.id.in_(linked_development_ids))
+            ).all()
+        }
     items: list[LaunchWatchItem] = []
     for row in rows:
         linked_development_name = None
-        linked_development = None
-        if row.linked_development_id:
-            development = session.get(Development, row.linked_development_id)
-            if development is not None:
-                linked_development = development
-                linked_development_name = localize_text(
-                    development.name_translations_json or {},
-                    lang,
-                    default=development.name_zh or development.name_en or row.project_name,
-                )
+        linked_development = linked_developments.get(row.linked_development_id) if row.linked_development_id else None
+        if linked_development is not None:
+            linked_development_name = localize_text(
+                linked_development.name_translations_json or {},
+                lang,
+                default=linked_development.name_zh or linked_development.name_en or row.project_name,
+            )
 
         lat = linked_development.lat if linked_development is not None else None
         lng = linked_development.lng if linked_development is not None else None

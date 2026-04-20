@@ -118,6 +118,50 @@ def _serialize_event(item: PriceEvent, preferred_language: str, session: Session
     )
 
 
+def _serialize_event_with_related(
+    item: PriceEvent,
+    preferred_language: str,
+    *,
+    development: Development | None,
+    listing: Listing | None,
+) -> ListingFeedItemResponse:
+    development_name = None
+    if development is not None:
+        development_name = localize_text(
+            development.name_translations_json or {},
+            preferred_language,
+            default=development.name_zh or development.name_en,
+        )
+    listing_title = None
+    if listing is not None:
+        listing_title = localize_text(
+            listing.title_translations_json or {},
+            preferred_language,
+            default=listing.title,
+        )
+    return ListingFeedItemResponse(
+        id=item.id,
+        event_type=item.event_type.value,
+        event_at=item.event_at.isoformat(),
+        source=item.source,
+        development_id=item.development_id,
+        development_name=development_name,
+        development_source_url=development.source_url if development is not None else None,
+        listing_id=item.listing_id,
+        listing_title=listing_title,
+        listing_source_url=listing.source_url if listing is not None else None,
+        old_price_hkd=float(item.old_price_hkd) if item.old_price_hkd is not None else None,
+        new_price_hkd=float(item.new_price_hkd) if item.new_price_hkd is not None else None,
+        price_delta_hkd=(
+            float(item.new_price_hkd - item.old_price_hkd)
+            if item.old_price_hkd is not None and item.new_price_hkd is not None
+            else None
+        ),
+        old_status=item.old_status,
+        new_status=item.new_status,
+    )
+
+
 def _serialize_listing_detail(item: Listing, preferred_language: str, session: Session) -> ListingDetailResponse:
     development = session.get(Development, item.development_id)
     development_name = None
@@ -221,7 +265,7 @@ def list_listing_feed(
     session: Session = Depends(get_db_session),
 ) -> list[ListingFeedItemResponse]:
     stmt = (
-        select(PriceEvent)
+        select(PriceEvent, Development, Listing)
         .outerjoin(Listing, PriceEvent.listing_id == Listing.id)
         .outerjoin(Development, PriceEvent.development_id == Development.id)
     )
@@ -250,8 +294,11 @@ def list_listing_feed(
             )
         )
     stmt = stmt.order_by(PriceEvent.event_at.desc()).limit(limit)
-    items = session.scalars(stmt).all()
-    return [_serialize_event(item, lang, session) for item in items]
+    rows = session.execute(stmt).all()
+    return [
+        _serialize_event_with_related(item, lang, development=development, listing=listing)
+        for item, development, listing in rows
+    ]
 
 
 @router.get("/{listing_id}/events", response_model=list[ListingFeedItemResponse])
@@ -263,12 +310,17 @@ def get_listing_events(
     listing = session.get(Listing, listing_id)
     if listing is None:
         raise HTTPException(status_code=404, detail="listing not found")
-    items = session.scalars(
-        select(PriceEvent)
+    rows = session.execute(
+        select(PriceEvent, Development, Listing)
+        .outerjoin(Development, PriceEvent.development_id == Development.id)
+        .outerjoin(Listing, PriceEvent.listing_id == Listing.id)
         .where(PriceEvent.listing_id == listing_id)
         .order_by(PriceEvent.event_at.desc())
     ).all()
-    return [_serialize_event(item, lang, session) for item in items]
+    return [
+        _serialize_event_with_related(item, lang, development=development, listing=related_listing)
+        for item, development, related_listing in rows
+    ]
 
 
 @router.get("/{listing_id}", response_model=ListingDetailResponse)
