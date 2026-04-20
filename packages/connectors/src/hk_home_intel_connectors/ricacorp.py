@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, unquote, urljoin
 
 from bs4 import BeautifulSoup
 
@@ -106,6 +106,9 @@ class RicacorpAdapter(SourceAdapter):
             if not href:
                 continue
             estate_url = urljoin(self.base_url, href)
+            alias = self._alias_from_estate_url(estate_url)
+            if alias and self._is_generic_estate_alias(alias):
+                continue
             display_name = self._clean_text(
                 (href_node.select_one(".location-text") or href_node.select_one(".display-text") or href_node.select_one(".location-name"))
                 and (href_node.select_one(".location-text") or href_node.select_one(".display-text") or href_node.select_one(".location-name")).get_text(" ", strip=True)
@@ -127,9 +130,9 @@ class RicacorpAdapter(SourceAdapter):
                     "display_name": display_name,
                     "alt_name": alt_name,
                     "zone_text": zone_text,
-                    "alias": None,
-                    "alias_name": None,
-                    "buy_list_url": None,
+                    "alias": alias,
+                    "alias_name": self._alias_name(alias) if alias else None,
+                    "buy_list_url": self._buy_list_url_from_alias(alias, current_url=estate_url) if alias else None,
                     "sales_count": None,
                 },
             )
@@ -210,6 +213,8 @@ class RicacorpAdapter(SourceAdapter):
             alias = self._clean_text(match.group(1))
             if not alias:
                 continue
+            if self._is_generic_estate_alias(alias):
+                continue
             next_start = alias_matches[index + 1].start() if index + 1 < len(alias_matches) else len(state_text)
             segment = state_text[match.start():next_start]
             sales_counts = [
@@ -253,18 +258,31 @@ class RicacorpAdapter(SourceAdapter):
             cleaned_alias = self._clean_text(alias)
             if not cleaned_alias:
                 continue
+            if self._is_generic_estate_alias(cleaned_alias):
+                continue
             resolved_url = self._buy_list_url_from_alias(cleaned_alias, current_url=estate_url)
             if resolved_url:
                 return resolved_url
+        fallback_alias = self._alias_from_estate_url(estate_url)
+        if fallback_alias and not self._is_generic_estate_alias(fallback_alias):
+            return self._buy_list_url_from_alias(fallback_alias, current_url=estate_url)
         return None
 
     def _estate_url_from_alias(self, alias: str) -> str:
         encoded_alias = quote(alias, safe="-")
         return f"{self.base_url}/zh-hk/property/estate/{encoded_alias}"
 
+    def _alias_from_estate_url(self, estate_url: str) -> str | None:
+        matched = re.search(r"/property/estate/([^/?#]+)", estate_url, re.IGNORECASE)
+        if not matched:
+            return None
+        return self._clean_text(unquote(matched.group(1)))
+
     def _buy_list_url_from_alias(self, alias: str, *, current_url: str) -> str | None:
         cleaned_alias = self._clean_text(alias)
         if not cleaned_alias:
+            return None
+        if self._is_generic_estate_alias(cleaned_alias):
             return None
         buy_alias = cleaned_alias.replace("-estate-", "-bigest-")
         if "-bigest-" not in buy_alias:
@@ -279,6 +297,13 @@ class RicacorpAdapter(SourceAdapter):
         stem = re.split(r"-(?:estate|bigest)-", cleaned_alias, maxsplit=1, flags=re.IGNORECASE)[0]
         stem = stem.replace("-", " ")
         return self._clean_text(stem)
+
+    def _is_generic_estate_alias(self, alias: str | None) -> bool:
+        cleaned_alias = self._clean_text(alias)
+        if not cleaned_alias:
+            return False
+        lowered = cleaned_alias.lower()
+        return "-scope-" in lowered or "-type-" in lowered
 
     def _first_state_text(self, state_text: str, *keys: str) -> str | None:
         for key in keys:

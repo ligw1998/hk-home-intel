@@ -290,6 +290,31 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-issued 
 conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-issued
 ```
 
+如果你希望新机器上一次把两类 `LandsD` 官方观察池都补齐：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all
+```
+
+如果你还想把当前仍在 `SRPE` 官方一手链路里的项目一起补进观察池：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active
+```
+
+这条不会把所有仍在 `SRPE` 里的一手盘都塞进 `launch-watch`，而是只取近期开售窗口里的项目，避免观察池被老的一手余货刷满。
+
+如果你还想优先抓到“近期真的有价单 / 销售安排 / 楼书更新”的官方热项目：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs
+```
+
+这条比 `srpe-active` 更接近“待抽签 / 近期开售”的官方信号池，因为它只纳入近期在 `SRPE` 明细里有真实文档更新的项目。
+
 默认读取：
 
 - `configs/launch_watch_projects.toml`

@@ -29,6 +29,8 @@ from hk_home_intel_domain.launch_watch import (
     sync_launch_watch_config,
     sync_launch_watch_landsd_issued,
     sync_launch_watch_landsd_pending_approval,
+    sync_launch_watch_srpe_active_first_hand,
+    sync_launch_watch_srpe_recent_documents,
 )
 from hk_home_intel_domain.monitor_sync import sync_commercial_monitor_config
 from hk_home_intel_domain.refresh import (
@@ -726,28 +728,56 @@ def run_sync_launch_watch_official(source: str, dry_run: bool) -> None:
     session_factory = get_session_factory()
     with session_factory() as session:
         if source == "landsd-pending":
-            summary = sync_launch_watch_landsd_pending_approval(session, dry_run=dry_run)
+            summaries = [sync_launch_watch_landsd_pending_approval(session, dry_run=dry_run)]
         elif source == "landsd-issued":
-            summary = sync_launch_watch_landsd_issued(session, dry_run=dry_run)
+            summaries = [sync_launch_watch_landsd_issued(session, dry_run=dry_run)]
+        elif source == "srpe-active":
+            summaries = [sync_launch_watch_srpe_active_first_hand(session, dry_run=dry_run)]
+        elif source == "srpe-recent-docs":
+            summaries = [sync_launch_watch_srpe_recent_documents(session, dry_run=dry_run)]
+        elif source == "landsd-all":
+            summaries = [
+                sync_launch_watch_landsd_pending_approval(session, dry_run=dry_run),
+                sync_launch_watch_landsd_issued(session, dry_run=dry_run),
+            ]
         else:
             raise ValueError(f"Unsupported launch-watch official source: {source}")
 
-    print(
-        json.dumps(
-            {
-                "source": summary.source,
-                "report_url": summary.report_url,
-                "pdf_url": summary.pdf_url,
-                "processed": summary.processed,
-                "created": summary.created,
-                "updated": summary.updated,
-                "unchanged": summary.unchanged,
-                "dry_run": summary.dry_run,
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
-    )
+    if len(summaries) == 1:
+        summary = summaries[0]
+        payload: dict[str, object] = {
+            "source": summary.source,
+            "report_url": summary.report_url,
+            "pdf_url": summary.pdf_url,
+            "processed": summary.processed,
+            "created": summary.created,
+            "updated": summary.updated,
+            "unchanged": summary.unchanged,
+            "dry_run": summary.dry_run,
+        }
+    else:
+        payload = {
+            "source": source,
+            "processed": sum(item.processed for item in summaries),
+            "created": sum(item.created for item in summaries),
+            "updated": sum(item.updated for item in summaries),
+            "unchanged": sum(item.unchanged for item in summaries),
+            "dry_run": dry_run,
+            "results": [
+                {
+                    "source": item.source,
+                    "report_url": item.report_url,
+                    "pdf_url": item.pdf_url,
+                    "processed": item.processed,
+                    "created": item.created,
+                    "updated": item.updated,
+                    "unchanged": item.unchanged,
+                }
+                for item in summaries
+            ],
+        }
+
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
 def run_discover_commercial_monitor_candidates(

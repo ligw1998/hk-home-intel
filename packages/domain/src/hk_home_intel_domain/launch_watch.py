@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from hk_home_intel_connectors.html import extract_links
 from hk_home_intel_connectors.http import create_client, fetch_text
 from hk_home_intel_connectors.srpe import SRPEAdapter
+from hk_home_intel_domain.enums import ListingSegment
 from hk_home_intel_domain.models import Development, LaunchWatchProject
 
 LANDSD_PRESALE_INDEX_URL = (
@@ -25,6 +26,18 @@ LANDSD_PRESALE_PENDING_SOURCE = "landsd_presale_pending"
 LANDSD_ISSUED_SOURCE = "landsd_issued"
 LANDSD_PRESALE_ISSUED_SOURCE = "landsd_presale_issued"
 LANDSD_ASSIGN_ISSUED_SOURCE = "landsd_assign_issued"
+SRPE_ACTIVE_FIRST_HAND_SOURCE = "srpe_active_first_hand"
+SRPE_RECENT_DOCS_SOURCE = "srpe_recent_docs"
+SRPE_ACTIVE_NEW_MIN_PROXY_YEAR_OFFSET = -1
+SRPE_ACTIVE_NEW_MAX_PROXY_YEAR_OFFSET = 3
+SRPE_ACTIVE_REMAINING_MIN_PROXY_YEAR_OFFSET = -1
+SRPE_ACTIVE_REMAINING_MAX_PROXY_YEAR_OFFSET = 1
+SRPE_RECENT_PRICE_SIGNAL_DAYS = 120
+SRPE_RECENT_BROCHURE_SIGNAL_DAYS = 90
+SRPE_RECENT_DOCS_NEW_MIN_PROXY_YEAR_OFFSET = -1
+SRPE_RECENT_DOCS_NEW_MAX_PROXY_YEAR_OFFSET = 2
+SRPE_RECENT_DOCS_REMAINING_MIN_PROXY_YEAR_OFFSET = -1
+SRPE_RECENT_DOCS_REMAINING_MAX_PROXY_YEAR_OFFSET = 1
 LANDSD_MONTHLY_REPORT_PATTERN = re.compile(r"/presale/(?P<stamp>\d{6})\.html$")
 LANDSD_ISSUED_PDF_PATTERN = re.compile(r"/doc/en/consent/monthly/t1_(?P<stamp>\d{4})\.pdf$")
 LANDSD_PENDING_PDF_PATTERN = re.compile(r"/doc/en/consent/monthly/t2_(?P<stamp>\d{4})\.pdf$")
@@ -109,7 +122,7 @@ class LaunchWatchConfigSyncSummary:
 class LaunchWatchOfficialSyncSummary:
     source: str
     report_url: str
-    pdf_url: str
+    pdf_url: str | None
     processed: int
     created: int
     updated: int
@@ -304,6 +317,48 @@ def _normalize_public_website_url(value: str | None) -> str | None:
     if normalized.startswith(("http://", "https://")):
         return normalized
     return f"https://{normalized}"
+
+
+def _parse_srpe_datetime_date(value: str | None) -> date | None:
+    normalized = _collapse_spaces(value)
+    if not normalized:
+        return None
+    iso_candidate = normalized.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(iso_candidate).date()
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(normalized, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _latest_srpe_signal_dates(detail_result: dict[str, Any]) -> dict[str, date | None]:
+    brochure_dates = [
+        _parse_srpe_datetime_date(brochure.get("dateOfPrint"))
+        for brochure in (detail_result.get("brochureList") or ([detail_result["brochure"]] if detail_result.get("brochure") else []))
+    ]
+    price_dates = [
+        _parse_srpe_datetime_date(price.get("dateOfPrinting"))
+        for price in (detail_result.get("prices") or [])
+    ]
+    arrangement_dates = [
+        _parse_srpe_datetime_date(arrangement.get("dateOfPrinting"))
+        for arrangement in (detail_result.get("salesArrangements") or [])
+    ]
+    brochure_latest = max((value for value in brochure_dates if value), default=None)
+    price_latest = max((value for value in price_dates if value), default=None)
+    arrangement_latest = max((value for value in arrangement_dates if value), default=None)
+    pricing_latest = max((value for value in [price_latest, arrangement_latest] if value), default=None)
+    return {
+        "brochure_latest": brochure_latest,
+        "price_latest": price_latest,
+        "arrangement_latest": arrangement_latest,
+        "pricing_latest": pricing_latest,
+    }
 
 
 def _build_development_name_index(session: Session) -> dict[str, str]:
@@ -895,6 +950,281 @@ def sync_launch_watch_landsd_issued(
     )
 
 
+def sync_launch_watch_srpe_active_first_hand(
+    session: Session,
+    *,
+    dry_run: bool = False,
+) -> LaunchWatchOfficialSyncSummary:
+    ensure_launch_watch_table(session)
+    current_year = datetime.now().year
+    min_proxy_year = current_year + min(SRPE_ACTIVE_NEW_MIN_PROXY_YEAR_OFFSET, SRPE_ACTIVE_REMAINING_MIN_PROXY_YEAR_OFFSET)
+    max_proxy_year = current_year + max(SRPE_ACTIVE_NEW_MAX_PROXY_YEAR_OFFSET, SRPE_ACTIVE_REMAINING_MAX_PROXY_YEAR_OFFSET)
+    candidate_developments = session.scalars(
+        select(Development)
+        .where(
+            Development.source == "srpe",
+            Development.listing_segment.in_([ListingSegment.NEW, ListingSegment.FIRST_HAND_REMAINING]),
+            Development.completion_year.is_not(None),
+            Development.completion_year >= min_proxy_year,
+            Development.completion_year <= max_proxy_year,
+        )
+        .order_by(Development.updated_at.desc())
+    ).all()
+    developments: list[Development] = []
+    for development in candidate_developments:
+        completion_year = development.completion_year
+        if completion_year is None:
+            continue
+        if development.listing_segment == ListingSegment.NEW:
+            if not (
+                current_year + SRPE_ACTIVE_NEW_MIN_PROXY_YEAR_OFFSET
+                <= completion_year
+                <= current_year + SRPE_ACTIVE_NEW_MAX_PROXY_YEAR_OFFSET
+            ):
+                continue
+        elif development.listing_segment == ListingSegment.FIRST_HAND_REMAINING:
+            if not (
+                current_year + SRPE_ACTIVE_REMAINING_MIN_PROXY_YEAR_OFFSET
+                <= completion_year
+                <= current_year + SRPE_ACTIVE_REMAINING_MAX_PROXY_YEAR_OFFSET
+            ):
+                continue
+        else:
+            continue
+        developments.append(development)
+
+    srpe_project_links = _build_srpe_project_link_index(
+        session,
+        development_ids={development.id for development in developments},
+    )
+
+    created = 0
+    updated = 0
+    unchanged = 0
+
+    for development in developments:
+        srpe_links = srpe_project_links.get(development.id) or {}
+        project_name = development.name_zh or development.name_en or development.id
+        expected_launch_window = str(development.completion_year) if development.completion_year else None
+        launch_stage = "watch_selling" if development.listing_segment == ListingSegment.FIRST_HAND_REMAINING else "launch_watch"
+        note_parts = ["SRPE active first-hand signal."]
+        if development.listing_segment == ListingSegment.FIRST_HAND_REMAINING:
+            note_parts.append("Still marked as first-hand remaining.")
+            note_parts.append(
+                "Filtered into near-term first-hand window "
+                f"{current_year + SRPE_ACTIVE_REMAINING_MIN_PROXY_YEAR_OFFSET}-"
+                f"{current_year + SRPE_ACTIVE_REMAINING_MAX_PROXY_YEAR_OFFSET}."
+            )
+        elif development.listing_segment == ListingSegment.NEW:
+            note_parts.append("Officially classified as new.")
+            note_parts.append(
+                "Filtered into new-project watch window "
+                f"{current_year + SRPE_ACTIVE_NEW_MIN_PROXY_YEAR_OFFSET}-"
+                f"{current_year + SRPE_ACTIVE_NEW_MAX_PROXY_YEAR_OFFSET}."
+            )
+        if development.completion_year:
+            note_parts.append(f"Document-date proxy year {development.completion_year}.")
+
+        normalized = _normalized_launch_watch_payload(
+            {
+                "source": SRPE_ACTIVE_FIRST_HAND_SOURCE,
+                "source_project_id": f"srpe:{development.source_external_id or development.id}",
+                "project_name": project_name,
+                "project_name_en": development.name_en,
+                "district": development.district,
+                "region": development.region,
+                "expected_launch_window": expected_launch_window,
+                "launch_stage": launch_stage,
+                "official_site_url": srpe_links.get("official_site_url"),
+                "source_url": development.source_url,
+                "srpe_url": srpe_links.get("srpe_url"),
+                "linked_development_id": development.id,
+                "note": " ".join(note_parts),
+                "tags": ["official", "srpe", "vendor-site", development.listing_segment.value],
+                "is_active": True,
+            }
+        )
+
+        existing = session.scalar(
+            select(LaunchWatchProject)
+            .where(
+                LaunchWatchProject.source == normalized["source"],
+                LaunchWatchProject.project_name == normalized["project_name"],
+            )
+            .limit(1)
+        )
+        if existing is None:
+            created += 1
+            if not dry_run:
+                session.add(LaunchWatchProject(**normalized))
+            continue
+
+        changed = False
+        for field, value in normalized.items():
+            if getattr(existing, field) != value:
+                changed = True
+                if not dry_run:
+                    setattr(existing, field, value)
+        if changed:
+            updated += 1
+        else:
+            unchanged += 1
+
+    if not dry_run:
+        session.commit()
+
+    return LaunchWatchOfficialSyncSummary(
+        source=SRPE_ACTIVE_FIRST_HAND_SOURCE,
+        report_url=SRPEAdapter.base_url,
+        pdf_url=None,
+        processed=len(developments),
+        created=created,
+        updated=updated,
+        unchanged=unchanged,
+        dry_run=dry_run,
+    )
+
+
+def sync_launch_watch_srpe_recent_documents(
+    session: Session,
+    *,
+    dry_run: bool = False,
+) -> LaunchWatchOfficialSyncSummary:
+    ensure_launch_watch_table(session)
+    adapter = SRPEAdapter()
+    today = date.today()
+    current_year = today.year
+    candidate_developments = session.scalars(
+        select(Development)
+        .where(
+            Development.source == "srpe",
+            Development.listing_segment.in_([ListingSegment.NEW, ListingSegment.FIRST_HAND_REMAINING]),
+            Development.completion_year.is_not(None),
+        )
+        .order_by(Development.updated_at.desc())
+    ).all()
+
+    processed = 0
+    created = 0
+    updated = 0
+    unchanged = 0
+
+    for development in candidate_developments:
+        completion_year = development.completion_year
+        if completion_year is None:
+            continue
+        if development.listing_segment == ListingSegment.NEW:
+            if not (
+                current_year + SRPE_RECENT_DOCS_NEW_MIN_PROXY_YEAR_OFFSET
+                <= completion_year
+                <= current_year + SRPE_RECENT_DOCS_NEW_MAX_PROXY_YEAR_OFFSET
+            ):
+                continue
+        elif development.listing_segment == ListingSegment.FIRST_HAND_REMAINING:
+            if not (
+                current_year + SRPE_RECENT_DOCS_REMAINING_MIN_PROXY_YEAR_OFFSET
+                <= completion_year
+                <= current_year + SRPE_RECENT_DOCS_REMAINING_MAX_PROXY_YEAR_OFFSET
+            ):
+                continue
+        try:
+            detail_result = adapter.fetch_selected_development_result(
+                development_id=str(development.source_external_id),
+                language="en",
+            )
+        except Exception:
+            continue
+
+        signal_dates = _latest_srpe_signal_dates(detail_result)
+        brochure_latest = signal_dates["brochure_latest"]
+        pricing_latest = signal_dates["pricing_latest"]
+        has_recent_pricing = (
+            pricing_latest is not None and (today - pricing_latest).days <= SRPE_RECENT_PRICE_SIGNAL_DAYS
+        )
+        has_recent_brochure = (
+            brochure_latest is not None and (today - brochure_latest).days <= SRPE_RECENT_BROCHURE_SIGNAL_DAYS
+        )
+        if not has_recent_pricing and not has_recent_brochure:
+            continue
+
+        processed += 1
+        project_name = development.name_zh or development.name_en or development.id
+        official_site_url = _normalize_public_website_url((detail_result.get("dev") or {}).get("website"))
+        tags = ["official", "srpe", "recent-docs", development.listing_segment.value]
+        note_parts = ["SRPE recent document activity signal."]
+        if has_recent_pricing:
+            tags.append("pricing-signal")
+            note_parts.append(f"Recent pricing/sales-arrangement update on {pricing_latest:%Y-%m-%d}.")
+        if has_recent_brochure:
+            tags.append("brochure-signal")
+            note_parts.append(f"Recent brochure update on {brochure_latest:%Y-%m-%d}.")
+        note_parts.append(
+            "Filtered into recent-docs watch window "
+            f"{current_year + SRPE_RECENT_DOCS_REMAINING_MIN_PROXY_YEAR_OFFSET}-"
+            f"{current_year + SRPE_RECENT_DOCS_NEW_MAX_PROXY_YEAR_OFFSET}."
+        )
+        launch_stage = "watch_selling" if has_recent_pricing else "launch_watch"
+
+        normalized = _normalized_launch_watch_payload(
+            {
+                "source": SRPE_RECENT_DOCS_SOURCE,
+                "source_project_id": f"srpe:{development.source_external_id or development.id}",
+                "project_name": project_name,
+                "project_name_en": development.name_en,
+                "district": development.district,
+                "region": development.region,
+                "expected_launch_window": str(development.completion_year) if development.completion_year else None,
+                "launch_stage": launch_stage,
+                "official_site_url": official_site_url,
+                "source_url": development.source_url,
+                "srpe_url": development.source_url,
+                "linked_development_id": development.id,
+                "note": " ".join(note_parts),
+                "tags": tags,
+                "is_active": True,
+            }
+        )
+
+        existing = session.scalar(
+            select(LaunchWatchProject)
+            .where(
+                LaunchWatchProject.source == normalized["source"],
+                LaunchWatchProject.project_name == normalized["project_name"],
+            )
+            .limit(1)
+        )
+        if existing is None:
+            created += 1
+            if not dry_run:
+                session.add(LaunchWatchProject(**normalized))
+            continue
+
+        changed = False
+        for field, value in normalized.items():
+            if getattr(existing, field) != value:
+                changed = True
+                if not dry_run:
+                    setattr(existing, field, value)
+        if changed:
+            updated += 1
+        else:
+            unchanged += 1
+
+    if not dry_run:
+        session.commit()
+
+    return LaunchWatchOfficialSyncSummary(
+        source=SRPE_RECENT_DOCS_SOURCE,
+        report_url=SRPEAdapter.base_url,
+        pdf_url=None,
+        processed=processed,
+        created=created,
+        updated=updated,
+        unchanged=unchanged,
+        dry_run=dry_run,
+    )
+
+
 def sync_launch_watch_config(
     session: Session,
     *,
@@ -905,13 +1235,50 @@ def sync_launch_watch_config(
     config_path = Path(path)
     payload = tomllib.loads(config_path.read_text(encoding="utf-8"))
     projects = list(payload.get("project") or [])
+    development_index = _build_development_name_index(session)
+
+    normalized_projects: list[dict[str, Any]] = []
+    for raw_item in projects:
+        linked_development_id = raw_item.get("linked_development_id")
+        if not linked_development_id:
+            for candidate in _launch_watch_match_candidates(str(raw_item.get("project_name") or "")):
+                linked_development_id = development_index.get(_normalize_name(candidate))
+                if linked_development_id:
+                    break
+            if not linked_development_id and raw_item.get("project_name_en"):
+                for candidate in _launch_watch_match_candidates(str(raw_item.get("project_name_en") or "")):
+                    linked_development_id = development_index.get(_normalize_name(candidate))
+                    if linked_development_id:
+                        break
+        normalized_projects.append(
+            {
+                **raw_item,
+                "linked_development_id": linked_development_id,
+            }
+        )
+
+    srpe_project_links = _build_srpe_project_link_index(
+        session,
+        development_ids={
+            str(item["linked_development_id"])
+            for item in normalized_projects
+            if item.get("linked_development_id")
+        },
+    )
 
     created = 0
     updated = 0
     unchanged = 0
 
-    for raw_item in projects:
-        normalized = _normalized_launch_watch_payload(raw_item)
+    for raw_item in normalized_projects:
+        srpe_links = srpe_project_links.get(str(raw_item.get("linked_development_id") or "")) or {}
+        normalized = _normalized_launch_watch_payload(
+            {
+                **raw_item,
+                "official_site_url": raw_item.get("official_site_url") or srpe_links.get("official_site_url"),
+                "srpe_url": raw_item.get("srpe_url") or srpe_links.get("srpe_url"),
+            }
+        )
         existing = session.scalar(
             select(LaunchWatchProject)
             .where(

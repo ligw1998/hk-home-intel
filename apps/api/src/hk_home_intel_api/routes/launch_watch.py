@@ -29,6 +29,9 @@ class LaunchWatchItem(BaseModel):
     linked_development_name: str | None
     note: str | None
     tags: list[str]
+    signal_bucket: str
+    signal_label: str
+    signal_rank: int
     is_active: bool
     lat: float | None
     lng: float | None
@@ -52,6 +55,23 @@ class LaunchWatchListResponse(BaseModel):
     total: int
 
 
+def _launch_watch_signal(row: LaunchWatchProject) -> tuple[str, str, int]:
+    tags = set(row.tags_json or [])
+    if row.source == "landsd_presale_pending":
+        return ("landsd_pending", "LandsD Pending", 0)
+    if row.source == "landsd_issued":
+        return ("landsd_issued", "LandsD Issued", 1)
+    if row.source == "srpe_recent_docs" and "pricing-signal" in tags:
+        return ("recent_pricing", "Recent Pricing", 2)
+    if row.source == "srpe_recent_docs" and "brochure-signal" in tags:
+        return ("recent_brochure", "Recent Brochure", 3)
+    if row.source == "srpe_active_first_hand":
+        return ("srpe_active", "SRPE Active", 4)
+    if row.source == "manual":
+        return ("manual_watch", "Manual Watch", 5)
+    return ("other_watch", "Other Watch", 6)
+
+
 @router.get("", response_model=LaunchWatchListResponse)
 def list_launch_watch_projects(
     q: str | None = Query(default=None),
@@ -64,7 +84,6 @@ def list_launch_watch_projects(
     ensure_launch_watch_table(session)
     stmt = select(LaunchWatchProject).order_by(
         LaunchWatchProject.is_active.desc(),
-        LaunchWatchProject.expected_launch_window.asc().nullslast(),
         LaunchWatchProject.updated_at.desc(),
     )
     if active_only:
@@ -103,6 +122,7 @@ def list_launch_watch_projects(
                 coordinate_mode = "approximate"
 
         display_name = row.project_name_en if lang == "en" and row.project_name_en else row.project_name
+        signal_bucket, signal_label, signal_rank = _launch_watch_signal(row)
         item = LaunchWatchItem(
             id=row.id,
             source=row.source,
@@ -120,6 +140,9 @@ def list_launch_watch_projects(
             linked_development_name=linked_development_name,
             note=row.note,
             tags=list(dict.fromkeys(row.tags_json or [])),
+            signal_bucket=signal_bucket,
+            signal_label=signal_label,
+            signal_rank=signal_rank,
             is_active=row.is_active,
             lat=lat,
             lng=lng,
@@ -144,4 +167,12 @@ def list_launch_watch_projects(
             if q.strip().lower() not in haystack:
                 continue
         items.append(item)
+    items.sort(
+        key=lambda item: (
+            0 if item.is_active else 1,
+            item.signal_rank,
+            item.expected_launch_window or "9999",
+            item.display_name,
+        )
+    )
     return LaunchWatchListResponse(items=items, total=len(items))

@@ -20,6 +20,9 @@ type LaunchWatchItem = {
   linked_development_name: string | null;
   note: string | null;
   tags: string[];
+  signal_bucket: string;
+  signal_label: string;
+  signal_rank: number;
   is_active: boolean;
   coordinate_mode: string;
   updated_at: string;
@@ -32,7 +35,17 @@ type LaunchWatchResponse = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-const STAGES = ["all", "launch_watch", "watch-selling", "selling", "watching"];
+const STAGES = ["all", "launch_watch", "watch_selling", "selling", "watching"];
+const SIGNAL_BUCKETS = [
+  "all",
+  "landsd_pending",
+  "landsd_issued",
+  "recent_pricing",
+  "recent_brochure",
+  "srpe_active",
+  "manual_watch",
+  "other_watch",
+];
 
 function formatUpdatedAt(value: string): string {
   return value.slice(0, 16).replace("T", " ");
@@ -42,7 +55,7 @@ function stageLabel(value: string): string {
   if (value === "launch_watch") {
     return "Launch Watch";
   }
-  if (value === "watch-selling") {
+  if (value === "watch_selling") {
     return "Watch Selling";
   }
   if (value === "selling") {
@@ -54,6 +67,7 @@ function stageLabel(value: string): string {
 export default function LaunchWatchPage() {
   const [items, setItems] = useState<LaunchWatchItem[]>([]);
   const [filterStage, setFilterStage] = useState("all");
+  const [filterSignal, setFilterSignal] = useState("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +109,9 @@ export default function LaunchWatchPage() {
       if (filterStage !== "all" && item.launch_stage !== filterStage) {
         return false;
       }
+      if (filterSignal !== "all" && item.signal_bucket !== filterSignal) {
+        return false;
+      }
       if (!search.trim()) {
         return true;
       }
@@ -107,19 +124,29 @@ export default function LaunchWatchPage() {
         item.region,
         item.expected_launch_window,
         item.launch_stage,
+        item.signal_label,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return haystack.includes(search.trim().toLowerCase());
     });
-  }, [filterStage, items, search]);
+  }, [filterSignal, filterStage, items, search]);
 
   const stageCounts = useMemo(() => {
     return {
       total: items.length,
       watch: items.filter((item) => item.launch_stage === "launch_watch").length,
       selling: items.filter((item) => item.launch_stage === "selling" || item.launch_stage === "watch-selling").length,
+    };
+  }, [items]);
+
+  const signalCounts = useMemo(() => {
+    return {
+      landsd: items.filter((item) => item.signal_bucket === "landsd_pending" || item.signal_bucket === "landsd_issued").length,
+      pricing: items.filter((item) => item.signal_bucket === "recent_pricing").length,
+      brochure: items.filter((item) => item.signal_bucket === "recent_brochure").length,
+      active: items.filter((item) => item.signal_bucket === "srpe_active").length,
     };
   }, [items]);
 
@@ -153,6 +180,14 @@ export default function LaunchWatchPage() {
             <strong>{stageCounts.selling}</strong>
             <span>Already selling / watch selling</span>
           </div>
+          <div className="dashboard-metric">
+            <strong>{signalCounts.landsd}</strong>
+            <span>LandsD signals</span>
+          </div>
+          <div className="dashboard-metric">
+            <strong>{signalCounts.pricing}</strong>
+            <span>Recent pricing</span>
+          </div>
         </div>
       </section>
 
@@ -163,6 +198,16 @@ export default function LaunchWatchPage() {
             <span>Stage</span>
             <select value={filterStage} onChange={(event) => setFilterStage(event.target.value)}>
               {STAGES.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Signal</span>
+            <select value={filterSignal} onChange={(event) => setFilterSignal(event.target.value)}>
+              {SIGNAL_BUCKETS.map((value) => (
                 <option key={value} value={value}>
                   {value}
                 </option>
@@ -181,6 +226,12 @@ export default function LaunchWatchPage() {
             This pool is intentionally earlier and noisier than normal development coverage. It is meant
             to answer which projects need closer tracking before SRPE and commercial listing coverage are complete.
           </p>
+          <div className="launch-watch-signal-legend">
+            <span className="workflow-chip launch-watch-signal-chip launch-watch-signal-landsd">LandsD</span>
+            <span className="workflow-chip launch-watch-signal-chip launch-watch-signal-pricing">Recent pricing</span>
+            <span className="workflow-chip launch-watch-signal-chip launch-watch-signal-brochure">Recent brochure</span>
+            <span className="workflow-chip launch-watch-signal-chip launch-watch-signal-active">SRPE active</span>
+          </div>
           {error ? <p className="muted">Launch watch error: {error}</p> : null}
         </aside>
 
@@ -204,9 +255,16 @@ export default function LaunchWatchPage() {
                     {item.expected_launch_window ? `· ${item.expected_launch_window}` : ""}
                   </p>
                 </div>
-                <span className={`launch-watch-badge launch-watch-badge-${item.launch_stage.replace(/[^a-z]/g, "-")}`}>
+                <div className="launch-watch-badge-stack">
+                  <span
+                    className={`launch-watch-badge launch-watch-badge-signal launch-watch-badge-signal-${item.signal_bucket}`}
+                  >
+                    {item.signal_label}
+                  </span>
+                <span className={`launch-watch-badge launch-watch-badge-${item.launch_stage.replace(/[^a-z]+/g, "-")}`}>
                   {stageLabel(item.launch_stage)}
                 </span>
+                </div>
               </div>
               <div className="development-summary-grid">
                 <div className="development-summary-card">

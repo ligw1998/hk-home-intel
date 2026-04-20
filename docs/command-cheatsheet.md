@@ -287,10 +287,33 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-issued 
 conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-issued
 ```
 
+一次刷新两类官方 `LandsD` 观察池：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-all
+```
+
+把当前仍在 `SRPE` 官方一手链路里的项目也同步进观察池：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active
+```
+
+把 `SRPE` 里近期真的有 `sales arrangement / price list / brochure` 更新的项目拉进观察池：
+
+```bash
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs --dry-run
+conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-docs
+```
+
 作用：
 
 - 从官方 `LandsD` 把未来 `1-3 年` 值得提前跟踪的新盘项目同步进观察池
 - 尽量补 `official_site_url` / `linked_development`
+- `srpe-active` 会把当前仍在官方一手销售链路里、且落在近期开售窗口的项目纳入 `launch-watch`
+- `srpe-recent-docs` 会把近期真的在 `SRPE` 上传过价单 / 销售安排 / 楼书的项目纳入 `launch-watch`
 
 查看位置：
 

@@ -157,18 +157,31 @@ def _ricacorp_name_hints(item: Development) -> list[str]:
         chinese_parts = [segment.strip() for segment in re.split(r"[‧・/]", normalized_spaces) if segment.strip()]
         expanded.extend(chinese_parts)
 
+        parenthetical_trimmed = re.sub(r"\s*\([^)]*\)\s*$", "", normalized_spaces).strip()
+        if parenthetical_trimmed and parenthetical_trimmed != normalized_spaces:
+            expanded.append(parenthetical_trimmed)
+
+        hyphen_trimmed = re.split(r"\s+-\s+", normalized_spaces, maxsplit=1)[0].strip()
+        if hyphen_trimmed and hyphen_trimmed != normalized_spaces:
+            expanded.append(hyphen_trimmed)
+
         phase_trimmed = re.sub(
-            r"\s+(?:phase\s+)?phase\s+[0-9a-zA-Z]+$",
+            r"\s+(?:(?:phase|stage)\s+){1,2}[0-9a-zA-Zivx]+$",
             "",
             normalized_spaces,
             flags=re.IGNORECASE,
         ).strip()
         if phase_trimmed and phase_trimmed != normalized_spaces:
             expanded.append(phase_trimmed)
+            if phase_trimmed.lower().startswith("the ") and len(phase_trimmed) > 4:
+                expanded.append(phase_trimmed[4:].strip())
 
         simple_phase_trimmed = re.sub(r"\s+[0-9]+[a-zA-Z]?$", "", normalized_spaces).strip()
         if simple_phase_trimmed and simple_phase_trimmed != normalized_spaces:
             expanded.append(simple_phase_trimmed)
+
+        if normalized_spaces.lower().startswith("the ") and len(normalized_spaces) > 4:
+            expanded.append(normalized_spaces[4:].strip())
 
     cleaned = [value for value in _dedupe_preserve(expanded) if len(_normalize_name(value)) >= 2]
     return cleaned
@@ -179,6 +192,18 @@ def _ricacorp_identity_keys(item: Development, *, name_hint: str | None = None) 
     if name_hint:
         values.append(name_hint)
     return {_normalize_name(value) for value in values if _normalize_name(value)}
+
+
+def _has_name_key_match(expected_keys: set[str], observed_keys: set[str]) -> bool:
+    if expected_keys & observed_keys:
+        return True
+    for expected in expected_keys:
+        for observed in observed_keys:
+            if min(len(expected), len(observed)) < 6:
+                continue
+            if expected in observed or observed in expected:
+                return True
+    return False
 
 
 def _listing_signal_summary(context: _DevelopmentContext) -> _ListingSignalSummary:
@@ -382,7 +407,7 @@ def _resolve_ricacorp_candidate_pairs(
             entry.get("alias_name"),
         ]
         entry_keys = {_normalize_name(value) for value in entry_values if _normalize_name(value)}
-        if not entry_keys or not (entry_keys & expected_keys):
+        if not entry_keys or not _has_name_key_match(expected_keys, entry_keys):
             continue
         candidate_url = str(entry.get("buy_list_url") or entry.get("estate_url") or "").strip()
         if not candidate_url or candidate_url in seen_urls:
@@ -391,9 +416,7 @@ def _resolve_ricacorp_candidate_pairs(
         name_hint = next((value for value in entry_values if value), item.name_zh or item.name_en or candidate_url)
         results.append((name_hint, candidate_url))
 
-    if results or estate_entries:
-        return results
-    return _ricacorp_candidate_urls(item)
+    return results
 
 
 def _validate_centanet_candidate(item: Development, *, name_hint: str, url: str) -> tuple[bool, str]:
@@ -445,9 +468,9 @@ def _validate_ricacorp_candidate(item: Development, *, name_hint: str, url: str)
                     *(_normalize_name(value) for value in (payload.get("name_translations") or {}).values()),
                 }
             )
-        if listing_page_keys & expected_keys:
+        if _has_name_key_match(expected_keys, listing_page_keys):
             return True, f"Matched Ricacorp listing page: {listing_page_name or name_hint}", url
-        if bundles and (parsed_keys & expected_keys):
+        if bundles and _has_name_key_match(expected_keys, parsed_keys):
             return True, f"Matched Ricacorp listing page: {name_hint}", url
         return False, "Fetched Ricacorp listing page but did not find a convincing development-name match.", None
     page_name = adapter.extract_estate_page_name(html_text)
@@ -455,7 +478,7 @@ def _validate_ricacorp_candidate(item: Development, *, name_hint: str, url: str)
     buy_list_url = adapter.extract_estate_buy_list_url(html_text, estate_url=url)
     page_markers = ("屋苑專頁" in html_text) or ("rc-estate-post-listing" in html_text) or ("post-total-count" in html_text)
 
-    if page_markers and (page_keys & expected_keys) and buy_list_url:
+    if page_markers and _has_name_key_match(expected_keys, page_keys) and buy_list_url:
         return True, f"Matched Ricacorp estate page: {page_name or name_hint}", buy_list_url
     if page_markers and not buy_list_url:
         return False, "Fetched Ricacorp estate page but could not resolve the linked sale listing page.", None

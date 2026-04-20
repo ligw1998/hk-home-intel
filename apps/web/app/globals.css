@@ -1051,6 +1051,38 @@ a:hover {
   white-space: nowrap;
 }
 
+.launch-watch-badge-stack {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.launch-watch-badge-signal {
+  background: rgba(41, 66, 120, 0.1);
+  color: #244271;
+}
+
+.launch-watch-badge-signal-landsd_pending,
+.launch-watch-badge-signal-landsd_issued {
+  background: rgba(11, 89, 152, 0.14);
+  color: #0d4f84;
+}
+
+.launch-watch-badge-signal-recent_pricing {
+  background: rgba(173, 78, 38, 0.15);
+  color: #8f441e;
+}
+
+.launch-watch-badge-signal-recent_brochure {
+  background: rgba(122, 78, 140, 0.14);
+  color: #633a72;
+}
+
+.launch-watch-badge-signal-srpe_active {
+  background: rgba(62, 118, 74, 0.14);
+  color: #2f613a;
+}
+
 .launch-watch-badge-launch-watch {
   background: rgba(155, 93, 46, 0.14);
   color: #7f441f;
@@ -1071,6 +1103,36 @@ a:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.launch-watch-signal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.launch-watch-signal-chip {
+  border: none;
+}
+
+.launch-watch-signal-landsd {
+  background: rgba(11, 89, 152, 0.12);
+  color: #0d4f84;
+}
+
+.launch-watch-signal-pricing {
+  background: rgba(173, 78, 38, 0.12);
+  color: #8f441e;
+}
+
+.launch-watch-signal-brochure {
+  background: rgba(122, 78, 140, 0.12);
+  color: #633a72;
+}
+
+.launch-watch-signal-active {
+  background: rgba(62, 118, 74, 0.12);
+  color: #2f613a;
 }
 
 .watchlist-board {
@@ -1395,6 +1457,10 @@ a:hover {
 
   .launch-watch-card-head {
     flex-direction: column;
+  }
+
+  .launch-watch-badge-stack {
+    justify-items: start;
   }
 
   .watchlist-editor {

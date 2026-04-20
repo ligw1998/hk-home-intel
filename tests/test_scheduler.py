@@ -7,6 +7,7 @@ from hk_home_intel_domain.commercial_discovery import (
     DEFAULT_MAX_SALEABLE_AREA_SQFT,
     DEFAULT_MIN_BUDGET_HKD,
     DEFAULT_MIN_SALEABLE_AREA_SQFT,
+    _has_name_key_match,
     _ricacorp_name_hints,
     discover_commercial_monitor_candidates,
     rebalance_auto_discovered_monitors,
@@ -19,6 +20,8 @@ from hk_home_intel_domain.launch_watch import (
     sync_launch_watch_config,
     sync_launch_watch_landsd_issued,
     sync_launch_watch_landsd_pending_approval,
+    sync_launch_watch_srpe_active_first_hand,
+    sync_launch_watch_srpe_recent_documents,
 )
 from hk_home_intel_domain.enums import JobRunStatus
 from hk_home_intel_domain.models import CommercialSearchMonitor, Development, LaunchWatchProject, RefreshJobRun
@@ -67,6 +70,21 @@ def test_sync_launch_watch_config_creates_projects(tmp_path: Path, monkeypatch) 
     engine = get_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
 
+    with Session(engine) as session:
+        session.add(
+            Development(
+                id="dev-test-launch",
+                source="srpe",
+                source_external_id="11365",
+                source_url="https://www.srpe.gov.hk/test-launch",
+                name_zh="測試新盤",
+                name_en="Test Launch",
+                aliases_json=["Test Launch"],
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
     config_path = tmp_path / "launch_watch.toml"
     config_path.write_text(
         """
@@ -83,14 +101,24 @@ source_url = "https://example.com/watch"
         encoding="utf-8",
     )
 
+    monkeypatch.setattr(
+        "hk_home_intel_domain.launch_watch.SRPEAdapter.fetch_selected_development_result",
+        lambda self, development_id, language="en": {"dev": {"website": "https://www.test-launch.example"}},
+    )
+
     session_factory = get_session_factory()
     with session_factory() as session:
         summary = sync_launch_watch_config(session, path=config_path, dry_run=False)
         created = session.scalar(select(func.count()).select_from(LaunchWatchProject))
+        project = session.scalar(select(LaunchWatchProject).limit(1))
 
     assert summary.processed == 1
     assert summary.created == 1
     assert created == 1
+    assert project is not None
+    assert project.linked_development_id == "dev-test-launch"
+    assert project.srpe_url == "https://www.srpe.gov.hk/test-launch"
+    assert project.official_site_url == "https://www.test-launch.example"
 
     engine.dispose()
     clear_settings_cache()
@@ -214,6 +242,7 @@ def test_sync_launch_watch_landsd_issued_creates_projects(tmp_path: Path, monkey
 
     engine = get_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
+    current_year = datetime.now().year
 
     session_factory = get_session_factory()
     with session_factory() as session:
@@ -347,6 +376,7 @@ def test_sync_launch_watch_landsd_pending_approval_creates_projects(tmp_path: Pa
 
     engine = get_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
+    current_year = datetime.now().year
 
     session_factory = get_session_factory()
     with session_factory() as session:
@@ -413,6 +443,262 @@ Joyful Sincere Limited
     assert project.source == "landsd_presale_pending"
     assert project.official_site_url == "https://www.headland.example"
     assert project.srpe_url == "https://www.srpe.gov.hk/the-headland"
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_sync_launch_watch_srpe_active_first_hand_creates_projects(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "launch-watch-srpe-active.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    current_year = datetime.now().year
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        session.add_all(
+            [
+                Development(
+                    id="dev-srpe-active-1",
+                    source="srpe",
+                    source_external_id="10011",
+                    source_url="https://www.srpe.gov.hk/project-one",
+                    name_zh="項目一",
+                    name_en="Project One",
+                    district="Kai Tak",
+                    region="Kowloon",
+                    completion_year=2026,
+                    listing_segment="first_hand_remaining",
+                    source_confidence="high",
+                ),
+                Development(
+                    id="dev-srpe-active-2",
+                    source="srpe",
+                    source_external_id="10012",
+                    source_url="https://www.srpe.gov.hk/project-two",
+                    name_zh="項目二",
+                    name_en="Project Two",
+                    district="Tseung Kwan O",
+                    region="New Territories",
+                    completion_year=2028,
+                    listing_segment="new",
+                    source_confidence="high",
+                ),
+                Development(
+                    id="dev-srpe-remaining-too-far",
+                    source="srpe",
+                    source_external_id="10016",
+                    source_url="https://www.srpe.gov.hk/project-four",
+                    name_zh="太遠余貨項目",
+                    name_en="Too Far Remaining Project",
+                    district="Kai Tak",
+                    region="Kowloon",
+                    completion_year=2028,
+                    listing_segment="first_hand_remaining",
+                    source_confidence="high",
+                ),
+                Development(
+                    id="dev-srpe-secondary",
+                    source="srpe",
+                    source_external_id="10013",
+                    source_url="https://www.srpe.gov.hk/project-three",
+                    name_zh="項目三",
+                    name_en="Project Three",
+                    listing_segment="second_hand",
+                    source_confidence="high",
+                ),
+                Development(
+                    id="dev-srpe-old-first-hand",
+                    source="srpe",
+                    source_external_id="10014",
+                    source_url="https://www.srpe.gov.hk/project-old",
+                    name_zh="舊一手項目",
+                    name_en="Old First-hand Project",
+                    completion_year=2022,
+                    listing_segment="first_hand_remaining",
+                    source_confidence="high",
+                ),
+                Development(
+                    id="dev-srpe-no-year",
+                    source="srpe",
+                    source_external_id="10015",
+                    source_url="https://www.srpe.gov.hk/project-no-year",
+                    name_zh="無年份項目",
+                    name_en="No Year Project",
+                    listing_segment="first_hand_remaining",
+                    source_confidence="high",
+                ),
+            ]
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.launch_watch.SRPEAdapter.fetch_selected_development_result",
+        lambda self, development_id, language="en": {
+            "dev": {
+                "website": {
+                    "10011": "www.project-one.example",
+                    "10012": "www.project-two.example",
+                }.get(str(development_id))
+            }
+        },
+    )
+
+    with session_factory() as session:
+        summary = sync_launch_watch_srpe_active_first_hand(session, dry_run=False)
+        created = session.scalar(select(func.count()).select_from(LaunchWatchProject))
+        projects = session.scalars(select(LaunchWatchProject).order_by(LaunchWatchProject.project_name)).all()
+
+    assert summary.source == "srpe_active_first_hand"
+    assert summary.processed == 2
+    assert summary.created == 2
+    assert created == 2
+    assert all(project.source == "srpe_active_first_hand" for project in projects)
+    assert all(project.linked_development_id in {"dev-srpe-active-1", "dev-srpe-active-2"} for project in projects)
+    project_one = next(project for project in projects if project.linked_development_id == "dev-srpe-active-1")
+    project_two = next(project for project in projects if project.linked_development_id == "dev-srpe-active-2")
+    assert project_one.official_site_url == "https://www.project-one.example"
+    assert project_one.srpe_url == "https://www.srpe.gov.hk/project-one"
+    assert project_one.expected_launch_window == "2026"
+    assert project_one.launch_stage == "watch_selling"
+    assert "near-term first-hand window" in (project_one.note or "")
+    assert project_two.official_site_url == "https://www.project-two.example"
+    assert project_two.launch_stage == "launch_watch"
+    assert "new-project watch window" in (project_two.note or "")
+    assert summary.report_url == "https://www.srpe.gov.hk"
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_sync_launch_watch_srpe_recent_documents_creates_projects(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "launch-watch-srpe-recent-docs.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    current_year = datetime.now().year
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        session.add_all(
+            [
+                Development(
+                    id="dev-srpe-recent-1",
+                    source="srpe",
+                    source_external_id="20011",
+                    source_url="https://www.srpe.gov.hk/recent-one",
+                    name_zh="近期價單項目",
+                    name_en="Recent Pricing Project",
+                    district="Kai Tak",
+                    region="Kowloon",
+                    completion_year=2027,
+                    listing_segment="first_hand_remaining",
+                    source_confidence="high",
+                ),
+                Development(
+                    id="dev-srpe-recent-2",
+                    source="srpe",
+                    source_external_id="20012",
+                    source_url="https://www.srpe.gov.hk/recent-two",
+                    name_zh="近期樓書項目",
+                    name_en="Recent Brochure Project",
+                    district="Tseung Kwan O",
+                    region="New Territories",
+                    completion_year=2028,
+                    listing_segment="new",
+                    source_confidence="high",
+                ),
+                Development(
+                    id="dev-srpe-stale",
+                    source="srpe",
+                    source_external_id="20013",
+                    source_url="https://www.srpe.gov.hk/stale",
+                    name_zh="過期訊號項目",
+                    name_en="Stale Signal Project",
+                    district="Tuen Mun",
+                    region="New Territories",
+                    completion_year=2026,
+                    listing_segment="first_hand_remaining",
+                    source_confidence="high",
+                ),
+                Development(
+                    id="dev-srpe-recent-too-far",
+                    source="srpe",
+                    source_external_id="20014",
+                    source_url="https://www.srpe.gov.hk/recent-too-far",
+                    name_zh="太遠新盤項目",
+                    name_en="Too Far New Project",
+                    district="Kai Tak",
+                    region="Kowloon",
+                    completion_year=current_year + 4,
+                    listing_segment="new",
+                    source_confidence="high",
+                ),
+            ]
+        )
+        session.commit()
+
+    recent_price_date = f"{current_year}-03-10T00:00:00.000+08:00"
+    recent_brochure_date = f"{current_year}-03-01T00:00:00.000+08:00"
+    stale_price_date = f"{current_year - 2}-02-01T00:00:00.000+08:00"
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.launch_watch.SRPEAdapter.fetch_selected_development_result",
+        lambda self, development_id, language="en": {
+            "dev": {
+                "website": {
+                    "20011": "www.recent-pricing.example",
+                    "20012": "www.recent-brochure.example",
+                    "20013": "www.stale.example",
+                    "20014": "www.too-far.example",
+                }.get(str(development_id))
+            },
+            "prices": [{"dateOfPrinting": recent_price_date}] if str(development_id) == "20011" else [],
+            "salesArrangements": [],
+            "brochureList": (
+                [{"dateOfPrint": recent_brochure_date}]
+                if str(development_id) == "20012"
+                else (
+                    [{"dateOfPrint": stale_price_date}]
+                    if str(development_id) == "20013"
+                    else ([{"dateOfPrint": recent_brochure_date}] if str(development_id) == "20014" else [])
+                )
+            ),
+        },
+    )
+
+    with session_factory() as session:
+        summary = sync_launch_watch_srpe_recent_documents(session, dry_run=False)
+        created = session.scalar(select(func.count()).select_from(LaunchWatchProject))
+        projects = session.scalars(select(LaunchWatchProject).order_by(LaunchWatchProject.project_name)).all()
+
+    assert summary.source == "srpe_recent_docs"
+    assert summary.processed == 2
+    assert summary.created == 2
+    assert created == 2
+    assert all(project.source == "srpe_recent_docs" for project in projects)
+    pricing_project = next(project for project in projects if project.linked_development_id == "dev-srpe-recent-1")
+    brochure_project = next(project for project in projects if project.linked_development_id == "dev-srpe-recent-2")
+    assert pricing_project.official_site_url == "https://www.recent-pricing.example"
+    assert pricing_project.launch_stage == "watch_selling"
+    assert "pricing/sales-arrangement update" in (pricing_project.note or "")
+    assert "recent-docs watch window" in (pricing_project.note or "")
+    assert brochure_project.official_site_url == "https://www.recent-brochure.example"
+    assert brochure_project.launch_stage == "launch_watch"
+    assert "brochure update" in (brochure_project.note or "")
 
     engine.dispose()
     clear_settings_cache()
@@ -1163,16 +1449,20 @@ def test_discover_ricacorp_monitor_candidates_can_validate(tmp_path: Path, monke
       </body>
     </html>
     """
-    estate_page_html = """
+    buy_results_html = """
     <html>
-      <head>
-        <title>逸瓏 - 屋苑專頁 | 真盤源 - 利嘉閣地產</title>
-      </head>
       <body>
-        <rc-estate-post-listing>
-          <span class="location-name">逸瓏</span>
-        </rc-estate-post-listing>
-        <a class="post-total-count" href="list/buy/%E9%80%B8%E7%93%8F-estate-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk">售盤</a>
+        <script id="serverApp-state" type="application/json">
+          {&q;SEARCHFILTER&q;:{&q;alias&q;:&q;逸瓏-bigest-九龍塘-hma-hk&q;,&q;page&q;:1}}
+        </script>
+        <rc-property-listing-item-desktop>
+          <a href="/zh-hk/property/detail/%E4%B9%9D%E9%BE%8D%E5%A1%98/%E9%80%B8%E7%93%8F-abc123-1-hk"></a>
+          <h3 class="address">逸瓏 2房</h3>
+          <div class="market-price-block"><div class="price-container">$950</div></div>
+          <span class="unit-price">$14,615/呎</span>
+          <span>實用 650 呎</span>
+          <span>物業編號 ABC123</span>
+        </rc-property-listing-item-desktop>
       </body>
     </html>
     """
@@ -1183,7 +1473,7 @@ def test_discover_ricacorp_monitor_candidates_can_validate(tmp_path: Path, monke
     )
     monkeypatch.setattr(
         "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_search_results_html",
-        lambda self, url: estate_page_html,
+        lambda self, url: buy_results_html,
     )
 
     with Session(engine) as session:
@@ -1215,7 +1505,7 @@ def test_discover_ricacorp_monitor_candidates_can_validate(tmp_path: Path, monke
         assert summary.validated == 1
         assert summary.created_monitors == 0
         assert summary.candidates[0].validated is True
-        assert summary.candidates[0].search_url.endswith("/property/list/buy/%E9%80%B8%E7%93%8F-estate-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk")
+        assert summary.candidates[0].search_url.endswith("/property/list/buy/%E9%80%B8%E7%93%8F-bigest-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk")
 
 
 def test_ricacorp_name_hints_include_parent_estate_candidates() -> None:
@@ -1234,6 +1524,26 @@ def test_ricacorp_name_hints_include_parent_estate_candidates() -> None:
     assert "THE SOUTHSIDE" in hints
 
 
+def test_ricacorp_name_hints_strip_repeated_phase_and_the_prefix() -> None:
+    item = Development(
+        source="srpe",
+        source_external_id="dummy-phase",
+        source_url="https://example.test",
+        name_en="THE RICHMOND Phase PHASE 1",
+        aliases_json=["THE RICHMOND Phase PHASE 1"],
+    )
+
+    hints = _ricacorp_name_hints(item)
+
+    assert "THE RICHMOND" in hints
+    assert "RICHMOND" in hints
+
+
+def test_has_name_key_match_allows_long_containment_only() -> None:
+    assert _has_name_key_match({"21borrettroad"}, {"21borrettroadphase1"})
+    assert not _has_name_key_match({"the"}, {"therichmond"})
+
+
 def test_ricacorp_extract_estate_buy_list_url_can_fallback_to_server_state() -> None:
     adapter = RicacorpAdapter()
     html_text = """
@@ -1249,6 +1559,65 @@ def test_ricacorp_extract_estate_buy_list_url_can_fallback_to_server_state() -> 
     buy_list_url = adapter.extract_estate_buy_list_url(
         html_text,
         estate_url="https://www.ricacorp.com/zh-hk/property/estate/%E5%8F%88%E4%B8%80%E5%B1%85",
+    )
+
+    assert buy_list_url == "https://www.ricacorp.com/zh-hk/property/list/buy/%E5%8F%88%E4%B8%80%E5%B1%85-bigest-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk"
+
+
+def test_ricacorp_estate_index_entries_can_derive_buy_url_from_anchor_alias() -> None:
+    adapter = RicacorpAdapter()
+    html_text = """
+    <html>
+      <body>
+        <a href="/zh-hk/property/estate/%E5%8F%88%E4%B8%80%E5%B1%85-estate-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk">
+          <span class="location-text">又一居</span>
+          <span class="zone-text">九龍塘</span>
+        </a>
+      </body>
+    </html>
+    """
+
+    entries = adapter.estate_index_entries(html_text=html_text)
+
+    assert len(entries) == 1
+    assert entries[0]["alias"] == "又一居-estate-九龍塘-hma-hk"
+    assert entries[0]["alias_name"] == "又一居"
+    assert entries[0]["buy_list_url"] == "https://www.ricacorp.com/zh-hk/property/list/buy/%E5%8F%88%E4%B8%80%E5%B1%85-bigest-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk"
+
+
+def test_ricacorp_estate_index_entries_skip_generic_scope_type_aliases() -> None:
+    adapter = RicacorpAdapter()
+    html_text = """
+    <html>
+      <body>
+        <a href="/zh-hk/property/estate/%E4%B9%9D%E9%BE%8D-scope-%E4%BD%8F%E5%AE%85-type-hk">
+          <span class="location-text">九龍</span>
+          <span class="zone-text">住宅</span>
+        </a>
+      </body>
+    </html>
+    """
+
+    entries = adapter.estate_index_entries(html_text=html_text)
+
+    assert entries == []
+
+
+def test_ricacorp_extract_estate_buy_list_url_can_fallback_to_estate_url_alias() -> None:
+    adapter = RicacorpAdapter()
+    html_text = """
+    <html>
+      <body>
+        <script id="serverApp-state" type="application/json">
+          {&q;others&q;:[{&q;itemId&q;:&q;post.sales&q;,&q;count&q;:8}]}
+        </script>
+      </body>
+    </html>
+    """
+
+    buy_list_url = adapter.extract_estate_buy_list_url(
+        html_text,
+        estate_url="https://www.ricacorp.com/zh-hk/property/estate/%E5%8F%88%E4%B8%80%E5%B1%85-estate-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk",
     )
 
     assert buy_list_url == "https://www.ricacorp.com/zh-hk/property/list/buy/%E5%8F%88%E4%B8%80%E5%B1%85-bigest-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk"
@@ -1319,6 +1688,52 @@ def test_discover_ricacorp_monitor_candidates_can_use_estate_index_state_buy_url
         assert summary.validated == 1
         assert summary.candidates[0].validated is True
         assert summary.candidates[0].search_url.endswith("/property/list/buy/%E5%8F%88%E4%B8%80%E5%B1%85-bigest-%E4%B9%9D%E9%BE%8D%E5%A1%98-hma-hk")
+
+
+def test_discover_ricacorp_monitor_candidates_skips_generic_scope_type_state_entries(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-discovery-ricacorp-scope-type.db'}")
+    Base.metadata.create_all(engine)
+    estate_list_html = """
+    <html>
+      <body>
+        <script id="serverApp-state" type="application/json">
+          {&q;alias&q;:&q;九龍-scope-住宅-type-hk&q;,&q;locationText&q;:&q;日出康城&q;,&q;others&q;:[{&q;itemId&q;:&q;post.sales&q;,&q;count&q;:12}]}
+        </script>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.commercial_discovery.RicacorpAdapter.fetch_estate_list_html",
+        lambda self: estate_list_html,
+    )
+
+    with Session(engine) as session:
+        session.add(
+            Development(
+                source="srpe",
+                source_external_id="srpe-rica-scope-type-001",
+                source_url="https://www.srpe.gov.hk/",
+                name_zh="日出康城 - 海瑅灣I",
+                aliases_json=["日出康城 - 海瑅灣I"],
+                district="TSEUNG KWAN O",
+                region="SAI KUNG AND ISLANDS",
+                listing_segment="first_hand_remaining",
+                source_confidence="high",
+            )
+        )
+        session.commit()
+
+        summary = discover_commercial_monitor_candidates(
+            session,
+            source="ricacorp",
+            limit=5,
+            validate=False,
+            create_monitors=False,
+        )
+
+        assert summary.generated == 0
+        assert summary.candidates == []
 
 
 def test_discover_ricacorp_monitor_candidates_skips_unindexed_guess_urls(tmp_path: Path, monkeypatch) -> None:

@@ -879,6 +879,8 @@ def test_launch_watch_endpoint_returns_curated_projects(isolated_app: TestClient
     assert payload["items"][0]["project_name"] == "啟德海灣第2期"
     assert payload["items"][0]["linked_development_name"] == "啟德海灣第2期"
     assert payload["items"][0]["launch_stage"] == "launch_watch"
+    assert payload["items"][0]["signal_bucket"] == "other_watch"
+    assert payload["items"][0]["signal_label"] == "Other Watch"
 
 
 def test_search_preset_crud(isolated_app: TestClient) -> None:
