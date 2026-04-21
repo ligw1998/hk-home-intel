@@ -5,12 +5,17 @@ import Link from "next/link";
 import { CompareToggleButton } from "../components/compare-toggle-button";
 import { MoneyValue } from "../components/money-value";
 import { formatListingSegment } from "../lib/segment";
-import type { DevelopmentSummary, LaunchWatchMapItem } from "./map-types";
+import type {
+  DevelopmentLaunchWatchSignal,
+  DevelopmentSummary,
+  LaunchWatchMapItem,
+} from "./map-types";
 import { buildWhyNow, coverageLabel } from "./map-utils";
 
 type Props = {
   selected: DevelopmentSummary | null;
   selectedLaunchWatch: LaunchWatchMapItem | null;
+  linkedLaunchWatchSignals: DevelopmentLaunchWatchSignal[];
   watchlistByDevelopment: Record<string, string>;
   developments: DevelopmentSummary[];
   launchWatchItems: LaunchWatchMapItem[];
@@ -21,6 +26,7 @@ type Props = {
 export function MapSelectedSidebar({
   selected,
   selectedLaunchWatch,
+  linkedLaunchWatchSignals,
   watchlistByDevelopment,
   developments,
   launchWatchItems,
@@ -73,6 +79,24 @@ export function MapSelectedSidebar({
             </span>
             <span className="decision-why-now">Why now: {buildWhyNow(selected)}</span>
             <span className={`status-pill status-pill-${selected.coverage_status}`}>{coverageLabel(selected.coverage_status)}</span>
+            {linkedLaunchWatchSignals.length > 0 ? (
+              <>
+                <span>
+                  Launch watch / {linkedLaunchWatchSignals[0].signal_label}
+                  {linkedLaunchWatchSignals.length > 1 ? ` +${linkedLaunchWatchSignals.length - 1}` : ""}
+                </span>
+                <div className="launch-watch-tag-row">
+                  {linkedLaunchWatchSignals.map((signal) => (
+                    <span key={signal.id} className="workflow-chip">
+                      {signal.signal_label}
+                    </span>
+                  ))}
+                </div>
+                {linkedLaunchWatchSignals[0].expected_launch_window ? (
+                  <span>{linkedLaunchWatchSignals[0].expected_launch_window}</span>
+                ) : null}
+              </>
+            ) : null}
             {selected.coverage_notes.map((note) => <span key={note}>{note}</span>)}
             {selected.data_gap_flags.length > 0 ? (
               <div className="launch-watch-tag-row">
@@ -96,6 +120,7 @@ export function MapSelectedSidebar({
               <Link href={`/compare?ids=${selected.id}`}>Compare</Link>
               <CompareToggleButton developmentId={selected.id} developmentName={selected.display_name ?? selected.id} />
               <Link href={`/activity?development_id=${selected.id}`}>Recent activity</Link>
+              {linkedLaunchWatchSignals.length > 0 ? <Link href="/launch-watch">Launch watch</Link> : null}
               {selected.source_links.length === 1 ? (
                 <a href={selected.source_links[0].url} target="_blank" rel="noreferrer">Open source</a>
               ) : selected.source_url ? (

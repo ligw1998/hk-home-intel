@@ -29,6 +29,7 @@ export type LaunchWatchMapItem = {
   launch_stage: string;
   signal_bucket: string;
   signal_label: string;
+  signal_rank: number;
   official_site_url: string | null;
   source_url: string | null;
   linked_development_id: string | null;
@@ -37,6 +38,18 @@ export type LaunchWatchMapItem = {
   lat: number | null;
   lng: number | null;
   coordinate_mode: string;
+};
+
+export type DevelopmentLaunchWatchSignal = {
+  id: string;
+  display_name: string;
+  launch_stage: string;
+  signal_bucket: string;
+  signal_label: string;
+  expected_launch_window: string | null;
+  official_site_url: string | null;
+  source_url: string | null;
+  note: string | null;
 };
 
 export type DevelopmentListResponse = {

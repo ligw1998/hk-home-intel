@@ -1,8 +1,17 @@
 "use client";
 
+import { useMemo } from "react";
+
 import type { SearchPreset } from "./map-types";
-import { DEFAULT_SEGMENTS, applyPresetCriteria, toggleNumberValue, toggleStringValue } from "./map-utils";
-import { SEGMENT_OPTIONS } from "../lib/segment";
+import {
+  DEFAULT_SEGMENTS,
+  MARKET_TYPE_OPTIONS,
+  applyPresetCriteria,
+  marketTypesFromSegments,
+  segmentsFromMarketTypes,
+  toggleNumberValue,
+  toggleStringValue,
+} from "./map-utils";
 
 const SOURCE_OPTIONS = [
   { value: "all", label: "All sources" },
@@ -107,6 +116,7 @@ export function MapFilterSidebar(props: Props) {
     clearPreferenceFilters,
     presetInfo,
   } = props;
+  const selectedMarketTypes = useMemo(() => marketTypesFromSegments(segments), [segments]);
 
   return (
     <aside className="panel filter-panel">
@@ -149,19 +159,24 @@ export function MapFilterSidebar(props: Props) {
       </label>
 
       <div className="field">
-        <span>Segments</span>
+        <span>Market type</span>
         <div className="checkbox-stack">
-          {SEGMENT_OPTIONS.filter((item) => item.value !== "all").map((item) => (
+          {MARKET_TYPE_OPTIONS.map((item) => (
             <label key={item.value} className="checkbox-field">
               <input
                 type="checkbox"
-                checked={segments.includes(item.value)}
-                onChange={() => setSegments(toggleStringValue(segments, item.value))}
+                checked={selectedMarketTypes.includes(item.value)}
+                onChange={() =>
+                  setSegments(
+                    segmentsFromMarketTypes(toggleStringValue(selectedMarketTypes, item.value)),
+                  )
+                }
               />
               <span>{item.label}</span>
             </label>
           ))}
         </div>
+        <small className="muted">Primary market groups together new and first-hand remaining projects.</small>
       </div>
 
       <div className="field">
@@ -211,14 +226,14 @@ export function MapFilterSidebar(props: Props) {
         <div><dt>Primary market</dt><dd>{primaryMarketCount}</dd></div>
         <div><dt>Second-hand</dt><dd>{secondHandCount}</dd></div>
         <div><dt>Mixed</dt><dd>{mixedCount}</dd></div>
-        <div><dt>Launch-watch</dt><dd>{launchWatchCount}</dd></div>
+        <div><dt>Launch-watch only</dt><dd>{launchWatchCount}</dd></div>
       </dl>
 
       <div className="legend">
         <div><span className="legend-dual-bubbles"><span className="bubble bubble-new legend-bubble" /><span className="bubble bubble-primary legend-bubble" /></span><small>Primary market: new + first-hand remaining</small></div>
         <div><span className="bubble bubble-secondary legend-bubble" /><small>Second-hand</small></div>
         <div><span className="bubble bubble-muted legend-bubble" /><small>Mixed</small></div>
-        <div><span className="bubble bubble-launch-watch legend-bubble" /><small>Launch watch</small></div>
+        <div><span className="bubble bubble-launch-watch legend-bubble" /><small>Launch watch only</small></div>
         <div><span className="legend-dashed-ring" /><small>Approx. launch-watch</small></div>
         <div><span className="legend-ring" /><small>Selected / watchlist ring</small></div>
       </div>

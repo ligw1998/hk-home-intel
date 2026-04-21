@@ -12,7 +12,11 @@ import {
 import type { LatLngBoundsExpression } from "leaflet";
 
 import { formatListingSegment } from "../lib/segment";
-import type { DevelopmentSummary, LaunchWatchMapItem } from "../map/map-types";
+import type {
+  DevelopmentLaunchWatchSignal,
+  DevelopmentSummary,
+  LaunchWatchMapItem,
+} from "../map/map-types";
 import { coverageLabel } from "../map/map-utils";
 
 function segmentColor(segment: string): string {
@@ -161,6 +165,7 @@ function buildDisplayCoordinateMap(
 export function DevelopmentLeafletMap({
   developments,
   launchWatchItems,
+  linkedLaunchWatchByDevelopment,
   selectedId,
   selectedLaunchWatchId,
   watchlistByDevelopment,
@@ -169,6 +174,7 @@ export function DevelopmentLeafletMap({
 }: {
   developments: DevelopmentSummary[];
   launchWatchItems: LaunchWatchMapItem[];
+  linkedLaunchWatchByDevelopment: Record<string, DevelopmentLaunchWatchSignal[]>;
   selectedId: string | null;
   selectedLaunchWatchId: string | null;
   watchlistByDevelopment: Record<string, string>;
@@ -239,6 +245,7 @@ export function DevelopmentLeafletMap({
           const displayCenter = displayCoordinates[item.id] ?? [item.lat, item.lng];
           const selectedItem = item.id === selectedId;
           const watchlistStage = watchlistByDevelopment[item.id];
+          const launchSignals = linkedLaunchWatchByDevelopment[item.id] ?? [];
           return (
             <CircleMarker
               key={item.id}
@@ -262,8 +269,17 @@ export function DevelopmentLeafletMap({
                     {item.region ? ` / ${item.region}` : ""}
                   </span>
                   <span>{formatListingSegment(item.listing_segment)}</span>
+                  {launchSignals.length > 0 ? (
+                    <span>
+                      Launch watch / {launchSignals[0].signal_label}
+                      {launchSignals.length > 1 ? ` +${launchSignals.length - 1}` : ""}
+                    </span>
+                  ) : null}
                   <span>{coverageLabel(item.coverage_status)}</span>
                   {item.coverage_notes[0] ? <span>{item.coverage_notes[0]}</span> : null}
+                  {launchSignals[0]?.expected_launch_window ? (
+                    <span>{launchSignals[0].expected_launch_window}</span>
+                  ) : null}
                   {watchlistStage ? <span>Watchlist / {watchlistStage}</span> : null}
                   <div className="map-popup-actions">
                     <Link href={`/developments/${item.id}`} className="action-link">
@@ -374,7 +390,7 @@ export function DevelopmentLeafletMap({
         </div>
         <div>
           <span className="bubble bubble-launch-watch legend-bubble" />
-          <small>Launch watch</small>
+          <small>Launch watch only</small>
         </div>
         <div>
           <span className="legend-dashed-ring" />

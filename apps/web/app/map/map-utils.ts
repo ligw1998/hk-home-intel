@@ -2,6 +2,17 @@ import type { DevelopmentSummary, SearchPresetCriteria } from "./map-types";
 
 export const DEFAULT_SEGMENTS = ["new", "first_hand_remaining", "second_hand"];
 export const SUGGESTED_BEDROOM_VALUES = [2, 3, 1, 0];
+export const MARKET_TYPE_OPTIONS = [
+  { value: "primary_market", label: "Primary market" },
+  { value: "second_hand", label: "Second-hand" },
+  { value: "mixed", label: "Mixed" },
+] as const;
+
+const MARKET_TYPE_SEGMENTS: Record<string, string[]> = {
+  primary_market: ["new", "first_hand_remaining"],
+  second_hand: ["second_hand"],
+  mixed: ["mixed"],
+};
 
 export function formatPrice(amount: number | null): string {
   if (amount === null) {
@@ -53,6 +64,30 @@ export function toggleStringValue(values: string[], value: string): string[] {
     return values.filter((item) => item !== value);
   }
   return [...values, value];
+}
+
+export function marketTypesFromSegments(segments: string[]): string[] {
+  const types: string[] = [];
+  if (segments.includes("new") || segments.includes("first_hand_remaining")) {
+    types.push("primary_market");
+  }
+  if (segments.includes("second_hand")) {
+    types.push("second_hand");
+  }
+  if (segments.includes("mixed")) {
+    types.push("mixed");
+  }
+  return types;
+}
+
+export function segmentsFromMarketTypes(marketTypes: string[]): string[] {
+  const segments = new Set<string>();
+  for (const marketType of marketTypes) {
+    for (const segment of MARKET_TYPE_SEGMENTS[marketType] ?? []) {
+      segments.add(segment);
+    }
+  }
+  return Array.from(segments);
 }
 
 export function toggleNumberValue(values: number[], value: number): number[] {

@@ -10,6 +10,7 @@ import { MapSelectedSidebar } from "./map-selected-sidebar";
 import type {
   DevelopmentDetailResponse,
   DevelopmentListResponse,
+  DevelopmentLaunchWatchSignal,
   DevelopmentSummary,
   LaunchWatchMapItem,
   LaunchWatchResponse,
@@ -276,15 +277,67 @@ function MapPageContent() {
   }, [developments]);
 
   const selected = developments.find((item) => item.id === selectedId) ?? null;
+  const linkedLaunchWatchByDevelopment = useMemo<Record<string, DevelopmentLaunchWatchSignal[]>>(() => {
+    const visibleDevelopmentIds = new Set(developments.map((item) => item.id));
+    const signalRanks = new Map(launchWatchItems.map((item) => [item.id, item.signal_rank]));
+    const grouped = new Map<string, DevelopmentLaunchWatchSignal[]>();
+
+    for (const item of launchWatchItems) {
+      if (!item.linked_development_id || !visibleDevelopmentIds.has(item.linked_development_id)) {
+        continue;
+      }
+      const current = grouped.get(item.linked_development_id) ?? [];
+      current.push({
+        id: item.id,
+        display_name: item.display_name,
+        launch_stage: item.launch_stage,
+        signal_bucket: item.signal_bucket,
+        signal_label: item.signal_label,
+        expected_launch_window: item.expected_launch_window,
+        official_site_url: item.official_site_url,
+        source_url: item.source_url,
+        note: item.note,
+      });
+      grouped.set(item.linked_development_id, current);
+    }
+
+    return Object.fromEntries(
+      Array.from(grouped.entries()).map(([developmentId, items]) => [
+        developmentId,
+        items.sort((left, right) => {
+          const leftRank = signalRanks.get(left.id) ?? 99;
+          const rightRank = signalRanks.get(right.id) ?? 99;
+          if (leftRank !== rightRank) {
+            return leftRank - rightRank;
+          }
+          return left.display_name.localeCompare(right.display_name);
+        }),
+      ]),
+    );
+  }, [developments, launchWatchItems]);
+  const standaloneLaunchWatchItems = useMemo(() => {
+    const visibleDevelopmentIds = new Set(developments.map((item) => item.id));
+    return launchWatchItems.filter(
+      (item) => !item.linked_development_id || !visibleDevelopmentIds.has(item.linked_development_id),
+    );
+  }, [developments, launchWatchItems]);
   const selectedLaunchWatch =
-    launchWatchItems.find((item) => item.id === selectedLaunchWatchId) ?? null;
+    standaloneLaunchWatchItems.find((item) => item.id === selectedLaunchWatchId) ?? null;
+  useEffect(() => {
+    if (
+      selectedLaunchWatchId &&
+      !standaloneLaunchWatchItems.some((item) => item.id === selectedLaunchWatchId)
+    ) {
+      setSelectedLaunchWatchId(null);
+    }
+  }, [selectedLaunchWatchId, standaloneLaunchWatchItems]);
   const watchlistCount = developments.filter((item) => Boolean(watchlistByDevelopment[item.id])).length;
   const primaryMarketCount = developments.filter(
     (item) => item.listing_segment === "new" || item.listing_segment === "first_hand_remaining",
   ).length;
   const secondHandCount = developments.filter((item) => item.listing_segment === "second_hand").length;
   const mixedCount = developments.filter((item) => item.listing_segment === "mixed").length;
-  const launchWatchCount = launchWatchItems.length;
+  const launchWatchCount = standaloneLaunchWatchItems.length;
 
   function applySuggestedBuyerFocus() {
     setSegments(DEFAULT_SEGMENTS);
@@ -465,10 +518,11 @@ function MapPageContent() {
           <h2>Map</h2>
           {error ? (
             <p className="muted">Map data unavailable: {error}</p>
-          ) : developments.length > 0 || launchWatchItems.length > 0 ? (
+          ) : developments.length > 0 || standaloneLaunchWatchItems.length > 0 ? (
             <DevelopmentLeafletMap
               developments={developments}
-              launchWatchItems={launchWatchItems}
+              launchWatchItems={standaloneLaunchWatchItems}
+              linkedLaunchWatchByDevelopment={linkedLaunchWatchByDevelopment}
               selectedId={selectedId}
               selectedLaunchWatchId={selectedLaunchWatchId}
               watchlistByDevelopment={watchlistByDevelopment}
@@ -495,9 +549,10 @@ function MapPageContent() {
         <MapSelectedSidebar
           selected={selected}
           selectedLaunchWatch={selectedLaunchWatch}
+          linkedLaunchWatchSignals={selected ? (linkedLaunchWatchByDevelopment[selected.id] ?? []) : []}
           watchlistByDevelopment={watchlistByDevelopment}
           developments={developments}
-          launchWatchItems={showLaunchWatch ? launchWatchItems : []}
+          launchWatchItems={showLaunchWatch ? standaloneLaunchWatchItems : []}
           setSelectedId={setSelectedId}
           setSelectedLaunchWatchId={setSelectedLaunchWatchId}
         />
