@@ -134,7 +134,7 @@ export default function HomePage() {
           fetch(
             `${API_BASE}/api/v1/shortlist?lang=zh-Hant&min_budget_hkd=8000000&max_budget_hkd=18000000&bedroom_values=2,3,1,0&min_saleable_area_sqft=400&max_saleable_area_sqft=750&max_age_years=10&extended_age_years=15&listing_segments=new,first_hand_remaining,second_hand&limit=30`,
           ),
-          fetch(`${API_BASE}/api/v1/listings/feed?days=7&limit=8`),
+          fetch(`${API_BASE}/api/v1/listings/feed?days=7&limit=50`),
           fetch(`${API_BASE}/api/v1/system/overview`),
         ]);
         if (!healthResponse.ok) {
@@ -278,7 +278,7 @@ export default function HomePage() {
                   <span>Possible fit</span>
                   <small className="muted">Open possible-fit shortlist</small>
                 </Link>
-                <Link href="/listings" className="dashboard-metric">
+                <Link href="/listings?days=7" className="dashboard-metric">
                   <strong>{marketMoves.length}</strong>
                   <span>Recent moves</span>
                   <small className="muted">Open listing moves</small>
