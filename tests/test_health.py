@@ -934,6 +934,38 @@ def test_launch_watch_endpoint_returns_curated_projects(isolated_app: TestClient
     assert payload["items"][0]["signal_label"] == "Other Watch"
 
 
+def test_launch_watch_endpoint_uses_new_district_centroid_for_approximate_position(
+    isolated_app: TestClient,
+) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        session.add(
+            LaunchWatchProject(
+                source="manual",
+                project_name="啟德海灣第2期",
+                project_name_en="KT Marina Phase 2",
+                district="Kai Tak",
+                region="Kowloon",
+                expected_launch_window="near-term",
+                launch_stage="launch_watch",
+                source_url="https://example.com/launch-news",
+                linked_development_id=None,
+                is_active=True,
+                tags_json=["primary-market"],
+            )
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/launch-watch")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    item = payload["items"][0]
+    assert item["coordinate_mode"] == "approximate"
+    assert item["lat"] == 22.3199
+    assert item["lng"] == 114.2131
+
+
 def test_search_preset_crud(isolated_app: TestClient) -> None:
     create_response = isolated_app.post(
         "/api/v1/search-presets",
