@@ -132,7 +132,7 @@ export default function HomePage() {
           fetch(`${API_BASE}/api/v1/health`),
           fetch(`${API_BASE}/api/v1/developments?limit=6`),
           fetch(
-            `${API_BASE}/api/v1/shortlist?lang=zh-Hant&min_budget_hkd=8000000&max_budget_hkd=18000000&bedroom_values=2,3,1,0&min_saleable_area_sqft=400&max_saleable_area_sqft=750&max_age_years=10&extended_age_years=15&listing_segments=new,first_hand_remaining,second_hand&limit=8`,
+            `${API_BASE}/api/v1/shortlist?lang=zh-Hant&min_budget_hkd=8000000&max_budget_hkd=18000000&bedroom_values=2,3,1,0&min_saleable_area_sqft=400&max_saleable_area_sqft=750&max_age_years=10&extended_age_years=15&listing_segments=new,first_hand_remaining,second_hand&limit=30`,
           ),
           fetch(`${API_BASE}/api/v1/listings/feed?days=7&limit=8`),
           fetch(`${API_BASE}/api/v1/system/overview`),
@@ -268,18 +268,21 @@ export default function HomePage() {
           {shortlist.length > 0 ? (
             <div className="dashboard-stack">
               <div className="dashboard-metric-row">
-                <div className="dashboard-metric">
+                <Link href="/shortlist?band=strong_fit" className="dashboard-metric">
                   <strong>{shortlist.filter((item) => item.decision_band === "strong_fit").length}</strong>
                   <span>Strong fit</span>
-                </div>
-                <div className="dashboard-metric">
+                  <small className="muted">Open strong-fit shortlist</small>
+                </Link>
+                <Link href="/shortlist?band=possible_fit" className="dashboard-metric">
                   <strong>{shortlist.filter((item) => item.decision_band === "possible_fit").length}</strong>
                   <span>Possible fit</span>
-                </div>
-                <div className="dashboard-metric">
+                  <small className="muted">Open possible-fit shortlist</small>
+                </Link>
+                <Link href="/listings" className="dashboard-metric">
                   <strong>{marketMoves.length}</strong>
                   <span>Recent moves</span>
-                </div>
+                  <small className="muted">Open listing moves</small>
+                </Link>
               </div>
               <div className="dashboard-callout">
                 <strong>Best current candidate</strong>
@@ -299,7 +302,37 @@ export default function HomePage() {
                 <div className="hero-actions">
                   {shortlist[0] ? <Link href={`/developments/${shortlist[0].id}`}>Open candidate</Link> : null}
                   <Link href="/shortlist">Open full shortlist</Link>
+                  <Link href="/shortlist?band=strong_fit">Open strong-fit set</Link>
                 </div>
+              </div>
+              <div className="dashboard-callout">
+                <strong>Top fits right now</strong>
+                <ul className="development-list">
+                  {shortlist.slice(0, 3).map((item) => (
+                    <li key={item.id}>
+                      <strong>
+                        <Link href={`/developments/${item.id}`}>
+                          {item.display_name ?? item.id}
+                        </Link>
+                      </strong>
+                      <span>
+                        {bandLabel(item.decision_band)}
+                        {" / score "}
+                        {item.decision_score}
+                        {" / "}
+                        {item.district ?? "Unknown district"}
+                        {item.region ? ` / ${item.region}` : ""}
+                      </span>
+                      <span>
+                        {formatCompactPrice(item.active_listing_min_price_hkd)}
+                        {" → "}
+                        {formatCompactPrice(item.active_listing_max_price_hkd)}
+                        {" / "}
+                        {formatListingSegment(item.listing_segment)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
               {systemOverview?.readiness_notes?.length ? (
                 <div className="dashboard-callout">

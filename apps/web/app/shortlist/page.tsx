@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CompareToggleButton } from "../components/compare-toggle-button";
 import { MoneyValue } from "../components/money-value";
@@ -154,7 +155,8 @@ function buildWhyNow(item: ShortlistItem): string {
   return parts.slice(0, 3).join("，") + "。";
 }
 
-export default function ShortlistPage() {
+function ShortlistPageContent() {
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<ShortlistItem[]>([]);
   const [minBudget, setMinBudget] = useState("8000000");
   const [budget, setBudget] = useState("18000000");
@@ -167,11 +169,19 @@ export default function ShortlistPage() {
   const [budgetReadyOnly, setBudgetReadyOnly] = useState(false);
   const [bedroomSignalOnly, setBedroomSignalOnly] = useState(false);
   const [recentOnly, setRecentOnly] = useState(false);
+  const [bandFilter, setBandFilter] = useState(searchParams.get("band") ?? "all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setBandFilter(searchParams.get("band") ?? "all");
+  }, [searchParams]);
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      if (bandFilter !== "all" && item.decision_band !== bandFilter) {
+        return false;
+      }
       if (budgetReadyOnly && (item.acquisition_gap_hkd ?? 0) > 0) {
         return false;
       }
@@ -183,7 +193,7 @@ export default function ShortlistPage() {
       }
       return true;
     });
-  }, [bedroomSignalOnly, budgetReadyOnly, items, recentOnly]);
+  }, [bandFilter, bedroomSignalOnly, budgetReadyOnly, items, recentOnly]);
 
   const groupedItems = useMemo(() => {
     const order = ["strong_fit", "possible_fit", "needs_review", "weak_fit"];
@@ -336,6 +346,15 @@ export default function ShortlistPage() {
             Default profile follows your current preference: 800萬-1800萬、400-750呎（約 37-70 平方米）、2房优先，
             再看 3房、1房、开放式；优先新盘 / 一手，再看 10-15 年内二手。
           </p>
+          <div className="field">
+            <span>Decision band</span>
+            <select value={bandFilter} onChange={(event) => setBandFilter(event.target.value)}>
+              <option value="all">All bands</option>
+              <option value="strong_fit">Strong fit</option>
+              <option value="possible_fit">Possible fit</option>
+              <option value="needs_review">Needs review</option>
+            </select>
+          </div>
           <div className="field">
             <span>Quick Decision Filters</span>
             <div className="checkbox-stack">
@@ -510,5 +529,13 @@ export default function ShortlistPage() {
         </section>
       </section>
     </main>
+  );
+}
+
+export default function ShortlistPage() {
+  return (
+    <Suspense fallback={<main className="page-shell"><p className="muted">Loading shortlist...</p></main>}>
+      <ShortlistPageContent />
+    </Suspense>
   );
 }
