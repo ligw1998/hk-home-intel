@@ -259,7 +259,7 @@ function ShortlistPageContent() {
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">Shortlist</p>
         <h1>Decision Shortlist</h1>
         <p className="lead">

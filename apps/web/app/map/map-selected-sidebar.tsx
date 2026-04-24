@@ -23,6 +23,29 @@ type Props = {
   setSelectedLaunchWatchId: (id: string | null) => void;
 };
 
+function gapFlagLabel(flag: string): string {
+  const labels: Record<string, string> = {
+    missing_commercial_source: "Need commercial validation",
+    srpe_only: "Official baseline only",
+    missing_coordinates: "Missing map position",
+    missing_completion_year: "Year proxy missing",
+    missing_active_listing: "No active listings",
+    missing_bedroom_coverage: "Bedroom mix incomplete",
+    missing_saleable_area_coverage: "Area coverage incomplete",
+  };
+  return labels[flag] ?? flag.replaceAll("_", " ");
+}
+
+function gapFlagSeverity(flag: string): string {
+  if (flag === "missing_coordinates" || flag === "missing_active_listing") {
+    return "warning";
+  }
+  if (flag === "missing_commercial_source" || flag === "srpe_only") {
+    return "info";
+  }
+  return "muted";
+}
+
 export function MapSelectedSidebar({
   selected,
   selectedLaunchWatch,
@@ -101,7 +124,9 @@ export function MapSelectedSidebar({
             {selected.data_gap_flags.length > 0 ? (
               <div className="launch-watch-tag-row">
                 {selected.data_gap_flags.map((flag) => (
-                  <span key={flag} className="workflow-chip">{flag}</span>
+                  <span key={flag} className={`gap-chip gap-chip-${gapFlagSeverity(flag)}`}>
+                    {gapFlagLabel(flag)}
+                  </span>
                 ))}
               </div>
             ) : null}
@@ -112,7 +137,7 @@ export function MapSelectedSidebar({
             </span>
             {watchlistByDevelopment[selected.id] ? <span>Watchlist / {watchlistByDevelopment[selected.id]}</span> : null}
             <span>
-              {selected.age_years !== null ? `${selected.age_years} years` : selected.completion_year ? `Completion ${selected.completion_year}` : "Age TBD"}
+              {selected.age_years !== null ? `${selected.age_years} years` : selected.completion_year ? `Year proxy ${selected.completion_year}` : "Age TBD"}
             </span>
             <span>{selected.lat?.toFixed(5)}, {selected.lng?.toFixed(5)}</span>
             <div className="hero-actions">

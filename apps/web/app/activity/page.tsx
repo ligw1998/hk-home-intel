@@ -118,7 +118,7 @@ function ActivityPageContent() {
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">Activity Feed</p>
         <h1>Recent Activity</h1>
         <p className="lead">

@@ -30,6 +30,10 @@ class RefreshJobRunSummary(BaseModel):
 class SystemOverviewResponse(BaseModel):
     development_count: int
     development_with_coordinates_count: int
+    development_missing_coordinates_count: int
+    duplicate_development_name_group_count: int
+    active_listing_missing_price_count: int
+    commercial_canonical_with_official_artifact_count: int
     document_count: int
     watchlist_count: int
     commercial_listing_count: int
@@ -164,6 +168,10 @@ def system_overview(session: Session = Depends(get_db_session)) -> SystemOvervie
     return SystemOverviewResponse(
         development_count=preflight.development_count,
         development_with_coordinates_count=preflight.development_with_coordinates_count,
+        development_missing_coordinates_count=preflight.development_missing_coordinates_count,
+        duplicate_development_name_group_count=preflight.duplicate_development_name_group_count,
+        active_listing_missing_price_count=preflight.active_listing_missing_price_count,
+        commercial_canonical_with_official_artifact_count=preflight.commercial_canonical_with_official_artifact_count,
         document_count=session.scalar(select(func.count()).select_from(Document)) or 0,
         watchlist_count=session.scalar(select(func.count()).select_from(WatchlistItem)) or 0,
         commercial_listing_count=preflight.commercial_listing_count,

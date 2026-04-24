@@ -1119,6 +1119,10 @@ def test_system_overview_and_refresh_jobs(isolated_app: TestClient) -> None:
     assert "development_count" in overview_payload
     assert "readiness_status" in overview_payload
     assert "commercial_listing_count" in overview_payload
+    assert "development_missing_coordinates_count" in overview_payload
+    assert "duplicate_development_name_group_count" in overview_payload
+    assert "active_listing_missing_price_count" in overview_payload
+    assert "commercial_canonical_with_official_artifact_count" in overview_payload
     assert overview_payload["latest_job"]["job_name"] == "srpe_refresh"
 
     jobs_response = isolated_app.get("/api/v1/system/refresh-jobs")
@@ -1138,6 +1142,60 @@ def test_system_overview_and_refresh_jobs(isolated_app: TestClient) -> None:
     assert centanet_plan["tasks"][0]["command"] == "centanet_search_refresh"
     assert centanet_plan["tasks"][0]["url"]
     assert centanet_plan["tasks"][0]["detect_withdrawn"] is False
+
+
+def test_system_overview_reports_preflight_data_quality_counts(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        srpe_development = Development(
+            source="srpe",
+            source_external_id="srpe-duplicate",
+            name_en="TEST ESTATE",
+            aliases_json=["TEST ESTATE"],
+            listing_segment=ListingSegment.FIRST_HAND_REMAINING,
+            source_confidence=SourceConfidence.HIGH,
+            lat=22.3,
+            lng=114.2,
+        )
+        commercial_development = Development(
+            source="centanet",
+            source_external_id="centanet-duplicate",
+            name_en="TEST ESTATE",
+            aliases_json=["TEST ESTATE"],
+            listing_segment=ListingSegment.SECOND_HAND,
+            source_confidence=SourceConfidence.MEDIUM,
+        )
+        session.add_all([srpe_development, commercial_development])
+        session.flush()
+        session.add(
+            Document(
+                development_id=commercial_development.id,
+                source="srpe",
+                source_doc_id="srpe-doc-on-commercial",
+                doc_type=DocumentType.BROCHURE,
+                title="Official brochure",
+            )
+        )
+        session.add(
+            Listing(
+                source="centanet",
+                source_listing_id="missing-price",
+                development_id=commercial_development.id,
+                listing_type=ListingType.SECOND_HAND,
+                status=ListingStatus.ACTIVE,
+                asking_price_hkd=None,
+            )
+        )
+        session.commit()
+
+    overview_response = isolated_app.get("/api/v1/system/overview")
+    assert overview_response.status_code == 200
+    payload = overview_response.json()
+    assert payload["development_missing_coordinates_count"] == 1
+    assert payload["duplicate_development_name_group_count"] == 1
+    assert payload["active_listing_missing_price_count"] == 1
+    assert payload["commercial_canonical_with_official_artifact_count"] == 1
+    assert any("cross-source duplicate" in note for note in payload["readiness_notes"])
 
 
 def test_run_scheduler_plan_endpoint(isolated_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -335,7 +335,7 @@ export default async function ComparePage({
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">Compare</p>
         <h1>Development Compare</h1>
         <p className="lead">

@@ -13,6 +13,7 @@ import {
 
 export function CompareTray() {
   const [items, setItems] = useState<CompareSelection[]>([]);
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     setItems(getCompareSelections());
@@ -23,6 +24,14 @@ export function CompareTray() {
 
   if (items.length === 0) {
     return null;
+  }
+
+  if (collapsed) {
+    return (
+      <button type="button" className="compare-tray compare-tray-collapsed" onClick={() => setCollapsed(false)}>
+        Compare tray · {items.length}
+      </button>
+    );
   }
 
   return (
@@ -47,6 +56,9 @@ export function CompareTray() {
       </div>
       <div className="compare-tray-actions">
         <Link href={compareHref}>Open compare</Link>
+        <button type="button" className="action-button action-button-secondary" onClick={() => setCollapsed(true)}>
+          Collapse
+        </button>
         <button type="button" className="action-button action-button-secondary" onClick={() => clearCompareSelections()}>
           Clear
         </button>

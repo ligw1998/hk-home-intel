@@ -353,7 +353,7 @@ http://localhost:3000/compare?ids=<development_id_1>,<development_id_2>
 
 - 首页、地图、watchlist、development detail 都可以直接 `Add to compare`
 - watchlist 页支持 `Add filtered to compare`
-- compare tray 固定显示在页面右下角，可直接进入 `/compare`
+- compare tray 显示在页面右下角，可直接进入 `/compare`，也可以折叠避免遮挡浏览
 - compare 页本身也支持对已选 development 直接 `Remove from compare`
 
 当前 compare 的推荐策略会尽量避免噪音结果：
@@ -396,11 +396,22 @@ conda run -n py311 hhi-worker run-srpe-refresh --lang en --limit 5
 ```bash
 conda run -n py311 hhi-worker run-refresh-plan --plan daily_local
 conda run -n py311 hhi-worker run-refresh-plan --plan watchlist_probe
+conda run -n py311 hhi-worker run-refresh-plan --plan commercial_daily
+conda run -n py311 hhi-worker run-refresh-plan --plan launch_watch_daily
 conda run -n py311 hhi-worker run-due-refresh-plans
 ```
 
 计划配置来自 `configs/scheduler.toml`，system 页也会显示这些计划及其任务参数。
 当前 `daily_local` 已加入简单轮转策略：每次成功运行后，会把 SRPE index 的抓取窗口按 `rotation_step` 向后推进，避免长期只刷新同一批最前面的 development。
+当前内置计划包括：
+
+- `daily_local`：低频 SRPE 官方 baseline refresh，默认 `auto_run = true`
+- `watchlist_probe`：小窗口 SRPE 手动验证
+- `centanet_probe`：单个中原搜索页手动验证
+- `ricacorp_probe`：单个利嘉阁搜索页手动验证
+- `commercial_daily`：批量运行 active Centanet / Ricacorp commercial monitors，默认手动
+- `launch_watch_daily`：刷新 `landsd-all` 与 `srpe-recent-docs` 官方 launch-watch 信号，默认手动
+
 如果你不想直接改 `configs/scheduler.toml`，现在也可以在 `/system` 页面里对 plan 做本地 override，覆盖：
 
 - `auto_run`
@@ -418,7 +429,7 @@ conda run -n py311 hhi-worker run-due-refresh-plans
 conda run -n py311 hhi-worker start-local-scheduler --poll-seconds 60 --run-on-start
 ```
 
-当前默认只有 `daily_local` 会参与自动调度；`watchlist_probe` 仍然是手动验证用计划。
+当前默认只有 `daily_local` 会参与自动调度；`watchlist_probe / centanet_probe / ricacorp_probe / commercial_daily / launch_watch_daily` 仍然是手动验证或手动批量计划。你可以在 `/system` 对计划开启本地 override，但建议先保持商业源低频手动运行，确认 monitor 质量后再提高自动化程度。
 
 如果你想补齐已有 development 的推断坐标：
 

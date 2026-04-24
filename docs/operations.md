@@ -9,6 +9,7 @@
 - 适合做 development / detail / official document 基线
 - 建议保留日级 refresh
 - 大批量补档时可用 `offset + limit` 逐步推进
+- 当前作为 canonical development identity 的最高优先级来源
 
 ### Centanet
 
@@ -21,6 +22,7 @@
   - 搜索页保持中等覆盖
   - detail 只补重点 monitor
   - 避免整批 refresh 因全量 detail 过慢
+- 匹配到已有 SRPE development 时，只补商业源覆盖、listing、price event 和缺失字段，不覆盖 SRPE 主身份
 
 ### Ricacorp
 
@@ -32,6 +34,7 @@
 - 含义：
   - 先以 search-page listing 覆盖为主
   - 暂不把 detail enrichment 作为常规运行路径
+- 主要作为第二商业源视角，用来交叉验证 Centanet 和 SRPE 覆盖，不作为官方 identity 来源
 
 ## Cleanup
 
@@ -72,6 +75,11 @@ conda run -n py311 hhi-worker backfill-development-geography
 重点查看：
 
 - `/system`
+  - Overview 的 readiness 卡片
+  - Missing Coordinates
+  - Duplicate Name Groups
+  - Active Listings Missing Price
+  - Commercial Canonical Official Artifacts
   - `Recent Refresh Jobs`
   - `Commercial Search Monitors`
 - `/map`

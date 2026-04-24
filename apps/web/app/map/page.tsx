@@ -441,7 +441,7 @@ function MapPageContent() {
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">Map Workspace</p>
         <h1>Preference Map Workspace</h1>
         <p className="lead">

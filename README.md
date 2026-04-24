@@ -45,6 +45,9 @@
 
 - 官方源 SRPE 的 development / detail / document 导入链路
 - 商业源 Centanet 与 Ricacorp 的 listing / price event 导入链路
+- 跨源 development 合并策略
+  - `SRPE` 作为官方 canonical identity 优先保留
+  - 商业源按名称或 monitor 匹配到 SRPE 盘时，只补 listing、价格、商业覆盖和缺失字段，不把官方主身份降级成商业源
 - development 级 `source_coverage / coverage_status / data_gap_flags`
   - 可以直接看出一个盘当前是只有 `SRPE` baseline，还是已经有商业源与活跃 listing 覆盖
 - `launch-watch` 观察池与官方信号层
@@ -121,20 +124,24 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-active
 
 ## 当前主要页面
 
-- `/map`
-- `/listings`
-- `/compare`
-- `/shortlist`
-- `/launch-watch`
-- `/system`
+当前主要页面按顶部导航分成三组：
+
+- `Decide`：`/`、`/shortlist`、`/compare`
+- `Explore`：`/map`、`/listings`、`/launch-watch`
+- `Track`：`/watchlist`、`/activity`、`/system`
 
 当前 UI 补充：
 
 - `/launch-watch`
   - 默认按官方信号强度分组显示，先看更接近待抽签 / 近期开售的项目
 - `/map`
+  - 筛选栏按 budget、location、market、bedrooms、presets 分组
   - 打开 `Show launch-watch` 后可同时查看观察池项目
-  - 右侧 `Selected` 面板会直接展示 development coverage / data-gap 提示
+  - 右侧 `Selected` 面板会直接展示 development coverage / data-gap 提示，并把缺口 flag 转成人可读标签
+- `/system`
+  - Overview 已从普通 key-value 列表升级为 readiness / volume / monitor / data-quality 健康卡片
+- Compare tray
+  - 页面右下角可快速进入 `/compare`，并支持折叠，避免遮挡日常浏览
 
 ## 进一步阅读
 

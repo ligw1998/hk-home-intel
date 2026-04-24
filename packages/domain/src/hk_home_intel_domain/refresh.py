@@ -14,6 +14,12 @@ from hk_home_intel_domain.ingestion import (
     import_srpe_all_developments,
 )
 from hk_home_intel_domain.jobs import finish_job_run, start_job_run
+from hk_home_intel_domain.launch_watch import (
+    sync_launch_watch_landsd_issued,
+    sync_launch_watch_landsd_pending_approval,
+    sync_launch_watch_srpe_active_first_hand,
+    sync_launch_watch_srpe_recent_documents,
+)
 from hk_home_intel_domain.models import CommercialSearchMonitor, RefreshJobRun
 from hk_home_intel_shared.db import get_session_factory
 from hk_home_intel_shared.scheduler import get_due_scheduler_plan_names, load_scheduler_plans
@@ -183,6 +189,73 @@ def execute_ricacorp_search_refresh(
         "transactions_upserted": summary.transactions_upserted,
         "price_events_created": summary.price_events_created,
         "snapshots_created": summary.snapshots_created,
+    }
+    finish_job_run(
+        session,
+        job=job,
+        status=JobRunStatus.SUCCEEDED,
+        summary=result,
+    )
+    return result
+
+
+def execute_launch_watch_official_refresh(
+    session: Session,
+    *,
+    source: str,
+    trigger_kind: str = "manual",
+    job_name: str = "launch_watch_official_refresh",
+) -> dict[str, Any]:
+    job = start_job_run(
+        session,
+        job_name=job_name,
+        source=source,
+        trigger_kind=trigger_kind,
+    )
+    try:
+        if source == "landsd-pending":
+            summaries = [sync_launch_watch_landsd_pending_approval(session)]
+        elif source == "landsd-issued":
+            summaries = [sync_launch_watch_landsd_issued(session)]
+        elif source == "landsd-all":
+            summaries = [
+                sync_launch_watch_landsd_pending_approval(session),
+                sync_launch_watch_landsd_issued(session),
+            ]
+        elif source == "srpe-active":
+            summaries = [sync_launch_watch_srpe_active_first_hand(session)]
+        elif source == "srpe-recent-docs":
+            summaries = [sync_launch_watch_srpe_recent_documents(session)]
+        else:
+            raise ValueError(f"unsupported launch-watch official source: {source}")
+    except Exception as exc:
+        finish_job_run(
+            session,
+            job=job,
+            status=JobRunStatus.FAILED,
+            error_message=str(exc),
+        )
+        raise
+
+    result = {
+        "job_id": job.id,
+        "source": source,
+        "processed": sum(item.processed for item in summaries),
+        "created": sum(item.created for item in summaries),
+        "updated": sum(item.updated for item in summaries),
+        "unchanged": sum(item.unchanged for item in summaries),
+        "results": [
+            {
+                "source": item.source,
+                "report_url": item.report_url,
+                "pdf_url": item.pdf_url,
+                "processed": item.processed,
+                "created": item.created,
+                "updated": item.updated,
+                "unchanged": item.unchanged,
+            }
+            for item in summaries
+        ],
     }
     finish_job_run(
         session,
@@ -432,6 +505,32 @@ def execute_refresh_plan(
                     limit=task.limit,
                     with_details=task.with_details,
                     detect_withdrawn=task.detect_withdrawn,
+                    trigger_kind="plan",
+                    job_name=f"{plan.name}:{task.job_name}",
+                )
+            elif task.command == "ricacorp_search_refresh":
+                if not task.url:
+                    raise ValueError(f"ricacorp task missing url: {task.job_name}")
+                task_result = execute_ricacorp_search_refresh(
+                    session,
+                    url=task.url,
+                    limit=task.limit,
+                    trigger_kind="plan",
+                    job_name=f"{plan.name}:{task.job_name}",
+                )
+            elif task.command == "commercial_monitor_batch":
+                task_result = execute_commercial_search_monitor_batch(
+                    session,
+                    source=task.source,
+                    active_only=True,
+                    limit_override=task.limit,
+                    trigger_kind="plan",
+                    job_name=f"{plan.name}:{task.job_name}",
+                )
+            elif task.command == "launch_watch_official":
+                task_result = execute_launch_watch_official_refresh(
+                    session,
+                    source=task.source,
                     trigger_kind="plan",
                     job_name=f"{plan.name}:{task.job_name}",
                 )

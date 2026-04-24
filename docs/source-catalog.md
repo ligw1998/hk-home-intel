@@ -151,7 +151,7 @@ source:
   supports_transactions:
 ```
 
-建议在 `configs/sources.yaml` 中维护。
+当前实现里，source adapter 能力主要由代码固定；可配置运行入口分别维护在 `configs/commercial_monitors.toml`、`configs/launch_watch_projects.toml` 和 `configs/scheduler.toml`。如果后续 source 数量继续扩大，再考虑增加独立的 source registry 配置。
 
 ## 4. 建议首批接入顺序
 
@@ -249,6 +249,14 @@ source:
 ## 6. 关键字段优先级
 
 不同 source 间应定义字段优先级，而不是简单覆盖。
+
+当前实现采用“官方扩盘、商业补充”的身份策略：
+
+- `SRPE` development 是官方 canonical identity 的最高优先级来源
+- `Centanet / Ricacorp` 匹配到已有 SRPE 楼盘时，不覆盖 `source / source_external_id / source_url` 这类主身份字段
+- 商业源仍然可以补 `aliases_json / tags_json / developer_names_json`、缺失地址与地区字段、listing、价格事件和覆盖状态
+- 如果先由商业源创建了 development，后续 SRPE 命中同盘时，允许提升为 SRPE canonical identity
+- `/system` 会统计“商业 canonical 但已有官方 artifacts”的异常，用来提示是否有历史数据需要复查
 
 建议：
 

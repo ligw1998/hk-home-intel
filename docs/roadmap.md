@@ -13,6 +13,7 @@
 - `SRPE` 基线：已完成
 - `map / shortlist / compare / system / launch-watch`：已可用
 - `Centanet / Ricacorp` commercial discovery + monitor + batch refresh：已可用
+- source identity merge：已采用 SRPE 优先、商业源补充覆盖的策略
 - `launch-watch` 官方信号层：已具备
   - `landsd-pending`
   - `landsd-issued`
@@ -23,7 +24,7 @@
 所以当前更接近：
 
 - Phase 3 已经基本落地
-- Phase 4 的部分工作台能力也已经开始出现
+- Phase 4 的部分工作台能力也已经开始出现，包括 compact UI、compare tray、System readiness / data-quality 卡片和 map data-gap 标签
 
 ## Phase 0: 设计与脚手架
 
@@ -323,4 +324,5 @@
 2. 继续收紧 `launch-watch` 的官方信号分层，优先保留更接近待抽签 / 近期开售的项目
 3. 把 `launch-watch` 与 `map / shortlist / compare` 的联动解释继续补强
 4. 收敛批量运行策略与 `/system` 可观测性，降低偶发超时的影响
-5. 再评估是否需要引入更多官方供应背景层，例如 `Housing Bureau`
+5. 继续用 `/system` 的 `Commercial Canonical Official Artifacts` 指标复查历史 source identity 异常
+6. 再评估是否需要引入更多官方供应背景层，例如 `Housing Bureau`

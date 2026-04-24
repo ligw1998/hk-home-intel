@@ -201,7 +201,7 @@ export default function WatchlistPage() {
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">Watchlist</p>
         <h1>Watchlist Workspace</h1>
         <p className="lead">

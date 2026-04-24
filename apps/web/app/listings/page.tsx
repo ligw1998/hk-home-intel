@@ -198,7 +198,7 @@ function ListingFeedPageContent() {
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">Listing Feed</p>
         <h1>Daily Listing Review</h1>
         <p className="lead">

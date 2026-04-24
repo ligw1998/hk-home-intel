@@ -72,6 +72,145 @@ def test_import_srpe_sample_exposes_developments(tmp_path: Path, monkeypatch) ->
     reset_db_caches()
 
 
+def test_commercial_development_match_preserves_srpe_canonical_identity(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "source-priority.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        srpe_development, created = upsert_development(
+            session,
+            {
+                "source": "srpe",
+                "source_external_id": "srpe-001",
+                "source_url": "https://www.srpe.gov.hk/official",
+                "name_zh": "測試屋苑",
+                "name_en": "TEST ESTATE",
+                "name_translations_json": {"en": "TEST ESTATE", "zh-Hant": "測試屋苑"},
+                "aliases_json": ["TEST ESTATE"],
+                "address_raw": "1 Test Road",
+                "district": "Kai Tak",
+                "region": "Kowloon",
+                "lat": 22.3,
+                "lng": 114.2,
+                "completion_year": 2026,
+                "listing_segment": "first_hand_remaining",
+                "source_confidence": "high",
+            },
+        )
+        assert created is True
+
+        commercial_development, created = upsert_development(
+            session,
+            {
+                "source": "centanet",
+                "source_external_id": "centanet-001",
+                "source_url": "https://hk.centanet.com/estate/test-estate",
+                "name_zh": "測試屋苑",
+                "name_en": "TEST ESTATE",
+                "name_translations_json": {"en": "Test Estate Commercial"},
+                "aliases_json": ["Test Estate Commercial"],
+                "address_raw": "Commercial Parsed Address",
+                "district": "Kowloon City",
+                "region": "Kowloon",
+                "lat": 22.31,
+                "lng": 114.21,
+                "listing_segment": "second_hand",
+                "source_confidence": "medium",
+            },
+        )
+        session.commit()
+
+        assert created is False
+        assert commercial_development.id == srpe_development.id
+        assert commercial_development.source == "srpe"
+        assert commercial_development.source_external_id == "srpe-001"
+        assert commercial_development.source_url == "https://www.srpe.gov.hk/official"
+        assert commercial_development.listing_segment.value == "first_hand_remaining"
+        assert commercial_development.source_confidence.value == "high"
+        assert commercial_development.address_raw == "1 Test Road"
+        assert commercial_development.lat == 22.3
+        assert commercial_development.lng == 114.2
+        assert "Test Estate Commercial" in commercial_development.aliases_json
+        assert commercial_development.name_translations_json["en"] == "TEST ESTATE"
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
+def test_srpe_development_match_promotes_commercial_canonical_identity(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "source-promotion.db"
+    monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("HHI_ENV", "test")
+
+    clear_settings_cache()
+    reset_db_caches()
+
+    engine = get_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        commercial_development, created = upsert_development(
+            session,
+            {
+                "source": "centanet",
+                "source_external_id": "centanet-001",
+                "source_url": "https://hk.centanet.com/estate/test-estate",
+                "name_zh": "測試屋苑",
+                "name_en": "TEST ESTATE",
+                "name_translations_json": {"en": "Test Estate Commercial"},
+                "aliases_json": ["Test Estate Commercial"],
+                "district": "Kowloon City",
+                "listing_segment": "second_hand",
+                "source_confidence": "medium",
+            },
+        )
+        assert created is True
+
+        srpe_development, created = upsert_development(
+            session,
+            {
+                "source": "srpe",
+                "source_external_id": "srpe-001",
+                "source_url": "https://www.srpe.gov.hk/official",
+                "name_zh": "測試屋苑",
+                "name_en": "TEST ESTATE",
+                "name_translations_json": {"en": "TEST ESTATE"},
+                "aliases_json": ["TEST ESTATE"],
+                "district": "Kai Tak",
+                "lat": 22.3,
+                "lng": 114.2,
+                "completion_year": 2026,
+                "listing_segment": "first_hand_remaining",
+                "source_confidence": "high",
+            },
+        )
+        session.commit()
+
+        assert created is False
+        assert srpe_development.id == commercial_development.id
+        assert srpe_development.source == "srpe"
+        assert srpe_development.source_external_id == "srpe-001"
+        assert srpe_development.source_url == "https://www.srpe.gov.hk/official"
+        assert srpe_development.listing_segment.value == "first_hand_remaining"
+        assert srpe_development.source_confidence.value == "high"
+        assert srpe_development.name_translations_json["en"] == "TEST ESTATE"
+        assert "Test Estate Commercial" in srpe_development.aliases_json
+
+    engine.dispose()
+    clear_settings_cache()
+    reset_db_caches()
+
+
 def test_import_srpe_live_index_maps_official_payload(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "live-index.db"
     monkeypatch.setenv("HHI_DATABASE_URL", f"sqlite:///{db_path}")

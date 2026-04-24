@@ -14,16 +14,31 @@ type SystemOverview = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-const NAV_ITEMS = [
-  { href: "/", label: "Dashboard" },
-  { href: "/shortlist", label: "Shortlist" },
-  { href: "/map", label: "Map" },
-  { href: "/listings", label: "Listings" },
-  { href: "/compare", label: "Compare" },
-  { href: "/launch-watch", label: "Launch Watch" },
-  { href: "/watchlist", label: "Watchlist" },
-  { href: "/activity", label: "Activity" },
-  { href: "/system", label: "System" },
+const NAV_GROUPS = [
+  {
+    label: "Decide",
+    items: [
+      { href: "/", label: "Dashboard" },
+      { href: "/shortlist", label: "Shortlist" },
+      { href: "/compare", label: "Compare" },
+    ],
+  },
+  {
+    label: "Explore",
+    items: [
+      { href: "/map", label: "Map" },
+      { href: "/listings", label: "Listings" },
+      { href: "/launch-watch", label: "Launch" },
+    ],
+  },
+  {
+    label: "Track",
+    items: [
+      { href: "/watchlist", label: "Watchlist" },
+      { href: "/activity", label: "Activity" },
+      { href: "/system", label: "System" },
+    ],
+  },
 ];
 
 function readinessLabel(status: string | null): string {
@@ -73,18 +88,25 @@ export function AppHeader() {
           HK Home Intel
         </Link>
         <nav className="app-nav" aria-label="Primary">
-          {NAV_ITEMS.map((item) => {
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={active ? "app-nav-link app-nav-link-active" : "app-nav-link"}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className="app-nav-group">
+              <span className="app-nav-group-label">{group.label}</span>
+              <div className="app-nav-group-links">
+                {group.items.map((item) => {
+                  const active = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={active ? "app-nav-link app-nav-link-active" : "app-nav-link"}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
         <Link href="/system" className="app-status-pill">
           <strong>{readinessLabel(overview?.readiness_status ?? null)}</strong>

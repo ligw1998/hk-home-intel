@@ -125,94 +125,112 @@ export function MapFilterSidebar(props: Props) {
         <span>Search</span>
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Development / district" />
       </label>
-      <label className="field">
-        <span>Budget Ceiling (HKD)</span>
-        <input type="number" min="0" value={maxBudgetHkd} onChange={(event) => setMaxBudgetHkd(event.target.value)} placeholder="18000000" />
-      </label>
-      <label className="field">
-        <span>Max Age (Years)</span>
-        <input type="number" min="0" value={maxAgeYears} onChange={(event) => setMaxAgeYears(event.target.value)} placeholder="10" />
-      </label>
-      <label className="field">
-        <span>Region</span>
-        <select value={region} onChange={(event) => setRegion(event.target.value)}>
-          <option value="all">All regions</option>
-          {regions.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-      </label>
-      <label className="field">
-        <span>District</span>
-        <select value={district} onChange={(event) => setDistrict(event.target.value)}>
-          <option value="all">All districts</option>
-          {districts.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-      </label>
-      <label className="field">
-        <span>Budget Floor (HKD)</span>
-        <input type="number" min="0" value={minBudgetHkd} onChange={(event) => setMinBudgetHkd(event.target.value)} placeholder="8000000" />
-      </label>
-      <label className="field">
-        <span>Source</span>
-        <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
-          {SOURCE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
-      </label>
-
-      <div className="field">
-        <span>Market type</span>
-        <div className="checkbox-stack">
-          {MARKET_TYPE_OPTIONS.map((item) => (
-            <label key={item.value} className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={selectedMarketTypes.includes(item.value)}
-                onChange={() =>
-                  setSegments(
-                    segmentsFromMarketTypes(toggleStringValue(selectedMarketTypes, item.value)),
-                  )
-                }
-              />
-              <span>{item.label}</span>
-            </label>
-          ))}
-        </div>
-        <small className="muted">Primary market groups together new and first-hand remaining projects.</small>
+      <div className="active-filter-row">
+        {minBudgetHkd ? <span className="filter-chip">From HK${Number(minBudgetHkd).toLocaleString()}</span> : null}
+        {maxBudgetHkd ? <span className="filter-chip">To HK${Number(maxBudgetHkd).toLocaleString()}</span> : null}
+        {maxAgeYears ? <span className="filter-chip">Age {"<="} {maxAgeYears}</span> : null}
+        {bedroomValues.length > 0 ? <span className="filter-chip">{bedroomValues.join(", ")} rooms</span> : null}
+        {sourceFilter !== "all" ? <span className="filter-chip">{sourceFilter}</span> : null}
       </div>
 
-      <div className="field">
-        <span>Bedroom Preference</span>
-        <div className="checkbox-stack">
-          {[2, 3, 1, 0].map((value) => (
-            <label key={value} className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={bedroomValues.includes(value)}
-                onChange={() => setBedroomValues(toggleNumberValue(bedroomValues, value))}
-              />
-              <span>{value === 0 ? "Studio" : `${value} rooms`}</span>
-            </label>
-          ))}
+      <details className="filter-section" open>
+        <summary>Budget & size</summary>
+        <label className="field">
+          <span>Budget Floor (HKD)</span>
+          <input type="number" min="0" value={minBudgetHkd} onChange={(event) => setMinBudgetHkd(event.target.value)} placeholder="8000000" />
+        </label>
+        <label className="field">
+          <span>Budget Ceiling (HKD)</span>
+          <input type="number" min="0" value={maxBudgetHkd} onChange={(event) => setMaxBudgetHkd(event.target.value)} placeholder="18000000" />
+        </label>
+        <label className="field">
+          <span>Min Saleable Area (sqft)</span>
+          <input type="number" min="0" value={minSaleableAreaSqft} onChange={(event) => setMinSaleableAreaSqft(event.target.value)} />
+        </label>
+        <label className="field">
+          <span>Max Saleable Area (sqft)</span>
+          <input type="number" min="0" value={maxSaleableAreaSqft} onChange={(event) => setMaxSaleableAreaSqft(event.target.value)} />
+        </label>
+      </details>
+
+      <details className="filter-section" open>
+        <summary>Location</summary>
+        <label className="field">
+          <span>Region</span>
+          <select value={region} onChange={(event) => setRegion(event.target.value)}>
+            <option value="all">All regions</option>
+            {regions.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>District</span>
+          <select value={district} onChange={(event) => setDistrict(event.target.value)}>
+            <option value="all">All districts</option>
+            {districts.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+      </details>
+
+      <details className="filter-section" open>
+        <summary>Market & coverage</summary>
+        <label className="field">
+          <span>Max Age (Years)</span>
+          <input type="number" min="0" value={maxAgeYears} onChange={(event) => setMaxAgeYears(event.target.value)} placeholder="10" />
+        </label>
+        <label className="field">
+          <span>Source</span>
+          <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
+            {SOURCE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
+        <div className="field">
+          <span>Market type</span>
+          <div className="checkbox-stack">
+            {MARKET_TYPE_OPTIONS.map((item) => (
+              <label key={item.value} className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={selectedMarketTypes.includes(item.value)}
+                  onChange={() =>
+                    setSegments(
+                      segmentsFromMarketTypes(toggleStringValue(selectedMarketTypes, item.value)),
+                    )
+                  }
+                />
+                <span>{item.label}</span>
+              </label>
+            ))}
+          </div>
+          <small className="muted">Primary market groups together new and first-hand remaining projects.</small>
         </div>
-      </div>
+        <label className="checkbox-field">
+          <input type="checkbox" checked={watchlistOnly} onChange={(event) => setWatchlistOnly(event.target.checked)} />
+          <span>Watchlist only</span>
+        </label>
+        <label className="checkbox-field">
+          <input type="checkbox" checked={showLaunchWatch} onChange={(event) => setShowLaunchWatch(event.target.checked)} />
+          <span>Show launch-watch</span>
+        </label>
+      </details>
 
-      <label className="field">
-        <span>Min Saleable Area (sqft)</span>
-        <input type="number" min="0" value={minSaleableAreaSqft} onChange={(event) => setMinSaleableAreaSqft(event.target.value)} />
-      </label>
-      <label className="field">
-        <span>Max Saleable Area (sqft)</span>
-        <input type="number" min="0" value={maxSaleableAreaSqft} onChange={(event) => setMaxSaleableAreaSqft(event.target.value)} />
-      </label>
-
-      <label className="checkbox-field">
-        <input type="checkbox" checked={watchlistOnly} onChange={(event) => setWatchlistOnly(event.target.checked)} />
-        <span>Watchlist only</span>
-      </label>
-
-      <label className="checkbox-field">
-        <input type="checkbox" checked={showLaunchWatch} onChange={(event) => setShowLaunchWatch(event.target.checked)} />
-        <span>Show launch-watch</span>
-      </label>
+      <details className="filter-section" open>
+        <summary>Bedrooms</summary>
+        <div className="field">
+          <span>Bedroom Preference</span>
+          <div className="checkbox-stack">
+            {[2, 3, 1, 0].map((value) => (
+              <label key={value} className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={bedroomValues.includes(value)}
+                  onChange={() => setBedroomValues(toggleNumberValue(bedroomValues, value))}
+                />
+                <span>{value === 0 ? "Studio" : `${value} rooms`}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </details>
 
       <p className="muted">
         {loading ? "Refreshing development candidates..." : `Showing ${developmentsCount} developments matched to the current preference set.`}
@@ -248,6 +266,8 @@ export function MapFilterSidebar(props: Props) {
       </div>
       {presetInfo ? <p className="muted">{presetInfo}</p> : null}
 
+      <details className="filter-section">
+        <summary>Presets</summary>
       <div className="plan-editor">
         <strong>Save Preset</strong>
         <label className="field">
@@ -304,6 +324,7 @@ export function MapFilterSidebar(props: Props) {
           </div>
         </div>
       ) : null}
+      </details>
     </aside>
   );
 }

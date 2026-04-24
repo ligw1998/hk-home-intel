@@ -53,12 +53,15 @@ curl http://127.0.0.1:8000/api/v1/health
 - `SRPE`
   - 官方 development / document 基线
   - 偏新盘、一手、一手余货、曾进入官方销售披露链路的项目
+  - 当前作为 development canonical identity 的最高优先级来源
 - `Centanet`
   - 第一商业源
   - 当前最成熟的 commercial listing 扩量源
+  - 匹配到 SRPE 盘时补 listing / price event / coverage，不覆盖 SRPE 主身份
 - `Ricacorp`
   - 第二商业源
   - 用来补另一视角，不完全依赖单一商业站点
+  - 当前默认更轻，主要补 search-page listing 覆盖和交叉验证
 - `launch-watch`
   - 未来 `1-3 年` 新盘 / 待抽签 / 近期开售观察池
   - 不等同于普通 listing feed
@@ -351,6 +354,20 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-do
 - `/map`
 - `/launch-watch`
 - `/system`
+
+如果想通过配置化计划执行同一类日常维护，可以用：
+
+```bash
+conda run -n py311 hhi-worker run-refresh-plan --plan daily_local
+conda run -n py311 hhi-worker run-refresh-plan --plan commercial_daily
+conda run -n py311 hhi-worker run-refresh-plan --plan launch_watch_daily
+```
+
+当前计划来自 `configs/scheduler.toml`：
+
+- `daily_local` 默认自动，到点刷新一小批 SRPE 官方 baseline
+- `commercial_daily` 默认手动，批量运行 active Centanet / Ricacorp monitors
+- `launch_watch_daily` 默认手动，刷新 `landsd-all` 和 `srpe-recent-docs`
 
 ## 6. Common Outputs
 

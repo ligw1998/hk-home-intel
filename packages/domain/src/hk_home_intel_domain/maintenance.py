@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from hk_home_intel_domain.models import CommercialSearchMonitor, Development, Listing, PriceEvent, RefreshJobRun, SourceSnapshot
+from hk_home_intel_domain.enums import ListingStatus
+from hk_home_intel_domain.models import CommercialSearchMonitor, Development, Document, Listing, PriceEvent, RefreshJobRun, SourceSnapshot
 
 
 @dataclass(slots=True)
@@ -23,6 +24,10 @@ class PreflightSummary:
     notes: list[str]
     development_count: int
     development_with_coordinates_count: int
+    development_missing_coordinates_count: int
+    duplicate_development_name_group_count: int
+    active_listing_missing_price_count: int
+    commercial_canonical_with_official_artifact_count: int
     commercial_listing_count: int
     price_event_count: int
     active_monitor_count: int
@@ -102,12 +107,20 @@ def compute_preflight_summary(session: Session) -> PreflightSummary:
         .select_from(Development)
         .where(Development.lat.is_not(None), Development.lng.is_not(None))
     ) or 0
+    development_missing_coordinates_count = max(0, development_count - development_with_coordinates_count)
     commercial_listing_count = session.scalar(
         select(func.count()).select_from(Listing).where(Listing.source.in_(["centanet", "ricacorp"]))
+    ) or 0
+    active_listing_missing_price_count = session.scalar(
+        select(func.count())
+        .select_from(Listing)
+        .where(Listing.status == ListingStatus.ACTIVE, Listing.asking_price_hkd.is_(None))
     ) or 0
     price_event_count = session.scalar(select(func.count()).select_from(PriceEvent)) or 0
     latest_job = session.scalar(select(RefreshJobRun).order_by(RefreshJobRun.started_at.desc()).limit(1))
     latest_job_status = latest_job.status.value if latest_job is not None else None
+    duplicate_development_name_group_count = _count_cross_source_duplicate_name_groups(session)
+    commercial_canonical_with_official_artifact_count = _count_commercial_canonical_with_official_artifacts(session)
 
     monitors = session.scalars(select(CommercialSearchMonitor)).all()
     active_monitors = [item for item in monitors if item.is_active]
@@ -134,8 +147,16 @@ def compute_preflight_summary(session: Session) -> PreflightSummary:
     notes: list[str] = []
     if development_count == 0:
         notes.append("No developments imported yet.")
-    if development_with_coordinates_count == 0 and development_count > 0:
-        notes.append("Development coordinates are still missing.")
+    if development_missing_coordinates_count > 0:
+        notes.append(f"{development_missing_coordinates_count} development(s) are missing coordinates.")
+    if duplicate_development_name_group_count > 0:
+        notes.append(f"{duplicate_development_name_group_count} cross-source duplicate development name group(s) need review.")
+    if active_listing_missing_price_count > 0:
+        notes.append(f"{active_listing_missing_price_count} active listing(s) are missing asking price.")
+    if commercial_canonical_with_official_artifact_count > 0:
+        notes.append(
+            f"{commercial_canonical_with_official_artifact_count} commercial-canonical development(s) have official artifacts; review source identity."
+        )
     if not active_monitors:
         notes.append("No active commercial monitors configured.")
     if attention_monitor_count > 0:
@@ -151,12 +172,57 @@ def compute_preflight_summary(session: Session) -> PreflightSummary:
         notes=notes,
         development_count=development_count,
         development_with_coordinates_count=development_with_coordinates_count,
+        development_missing_coordinates_count=development_missing_coordinates_count,
+        duplicate_development_name_group_count=duplicate_development_name_group_count,
+        active_listing_missing_price_count=active_listing_missing_price_count,
+        commercial_canonical_with_official_artifact_count=commercial_canonical_with_official_artifact_count,
         commercial_listing_count=commercial_listing_count,
         price_event_count=price_event_count,
         active_monitor_count=len(active_monitors),
         attention_monitor_count=attention_monitor_count,
         latest_job_status=latest_job_status,
     )
+
+
+def _identity_key(value: str | None) -> str:
+    return "".join(char.lower() for char in (value or "") if char.isalnum())
+
+
+def _development_name_keys(item: Development) -> set[str]:
+    values = [
+        item.name_zh,
+        item.name_en,
+        *((item.name_translations_json or {}).values()),
+        *(item.aliases_json or []),
+    ]
+    return {key for key in (_identity_key(str(value)) for value in values if value) if len(key) >= 3}
+
+
+def _count_cross_source_duplicate_name_groups(session: Session) -> int:
+    rows = session.scalars(select(Development).where(Development.source.is_not(None))).all()
+    groups: dict[str, set[str]] = {}
+    for item in rows:
+        for key in _development_name_keys(item):
+            groups.setdefault(key, set()).add(str(item.source))
+    return sum(1 for sources in groups.values() if len(sources) > 1)
+
+
+def _count_commercial_canonical_with_official_artifacts(session: Session) -> int:
+    commercial_sources = {"centanet", "ricacorp"}
+    official_sources = {"srpe"}
+    count = session.scalar(
+        select(func.count(func.distinct(Development.id)))
+        .select_from(Development)
+        .join(
+            Document,
+            and_(
+                Document.development_id == Development.id,
+                Document.source.in_(official_sources),
+            ),
+        )
+        .where(Development.source.in_(commercial_sources))
+    )
+    return int(count or 0)
 
 
 def _ensure_utc(value: datetime) -> datetime:

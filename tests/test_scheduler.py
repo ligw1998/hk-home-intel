@@ -47,6 +47,9 @@ def test_load_scheduler_plans_reads_expected_tasks() -> None:
     assert "daily_local" in plans
     assert "watchlist_probe" in plans
     assert "centanet_probe" in plans
+    assert "commercial_daily" in plans
+    assert "launch_watch_daily" in plans
+    assert "ricacorp_probe" in plans
     assert plans["daily_local"].tasks[0].command == "srpe_refresh"
     assert plans["daily_local"].tasks[0].with_details is True
     assert plans["daily_local"].tasks[0].rotation_mode == "cycle"
@@ -57,6 +60,10 @@ def test_load_scheduler_plans_reads_expected_tasks() -> None:
     assert plans["centanet_probe"].tasks[0].with_details is True
     assert plans["daily_local"].auto_run is True
     assert plans["daily_local"].interval_minutes == 1440
+    assert plans["commercial_daily"].tasks[0].command == "commercial_monitor_batch"
+    assert plans["commercial_daily"].tasks[1].source == "ricacorp"
+    assert plans["launch_watch_daily"].tasks[0].command == "launch_watch_official"
+    assert plans["ricacorp_probe"].tasks[0].command == "ricacorp_search_refresh"
 
 
 def test_sync_launch_watch_config_creates_projects(tmp_path: Path, monkeypatch) -> None:
@@ -821,6 +828,123 @@ def test_execute_refresh_plan_dispatches_centanet_probe(tmp_path: Path, monkeypa
     assert result["task_count"] == 1
     assert result["results"][0]["source"] == "centanet"
     assert result["results"][0]["listings_upserted"] == 3
+
+
+def test_execute_refresh_plan_dispatches_ricacorp_probe(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'ricacorp-plan.db'}")
+    Base.metadata.create_all(engine)
+
+    def fake_ricacorp_refresh(
+        session,
+        *,
+        url: str,
+        limit: int | None,
+        trigger_kind: str = "manual",
+        job_name: str = "ricacorp_search_refresh",
+    ):
+        return {
+            "job_id": "job-ricacorp-test",
+            "source": "ricacorp",
+            "url": url,
+            "limit": limit,
+            "developments_created": 0,
+            "developments_updated": 1,
+            "documents_upserted": 0,
+            "listings_upserted": 2,
+            "transactions_upserted": 0,
+            "price_events_created": 1,
+            "snapshots_created": 1,
+        }
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.refresh.execute_ricacorp_search_refresh",
+        fake_ricacorp_refresh,
+    )
+
+    with Session(engine) as session:
+        result = execute_refresh_plan(session, plan_name="ricacorp_probe", trigger_kind="manual")
+
+    assert result["plan"] == "ricacorp_probe"
+    assert result["task_count"] == 1
+    assert result["results"][0]["source"] == "ricacorp"
+    assert result["results"][0]["listings_upserted"] == 2
+
+
+def test_execute_refresh_plan_dispatches_commercial_monitor_batch(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'commercial-batch-plan.db'}")
+    Base.metadata.create_all(engine)
+    captured: list[dict[str, object]] = []
+
+    def fake_batch(
+        session,
+        *,
+        source: str = "centanet",
+        active_only: bool = True,
+        limit_override: int | None = None,
+        trigger_kind: str = "manual",
+        job_name: str | None = None,
+        job_id: str | None = None,
+    ):
+        captured.append({"source": source, "active_only": active_only, "limit_override": limit_override})
+        return {
+            "source": source,
+            "active_only": active_only,
+            "limit_override": limit_override,
+            "monitor_count": 1,
+            "failed_monitor_count": 0,
+            "results": [],
+        }
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.refresh.execute_commercial_search_monitor_batch",
+        fake_batch,
+    )
+
+    with Session(engine) as session:
+        result = execute_refresh_plan(session, plan_name="commercial_daily", trigger_kind="manual")
+
+    assert result["plan"] == "commercial_daily"
+    assert result["task_count"] == 2
+    assert captured == [
+        {"source": "centanet", "active_only": True, "limit_override": 20},
+        {"source": "ricacorp", "active_only": True, "limit_override": 30},
+    ]
+
+
+def test_execute_refresh_plan_dispatches_launch_watch_official(tmp_path: Path, monkeypatch) -> None:
+    engine = get_engine(f"sqlite:///{tmp_path / 'launch-watch-plan.db'}")
+    Base.metadata.create_all(engine)
+    captured: list[str] = []
+
+    def fake_launch_watch(
+        session,
+        *,
+        source: str,
+        trigger_kind: str = "manual",
+        job_name: str = "launch_watch_official_refresh",
+    ):
+        captured.append(source)
+        return {
+            "job_id": f"job-{source}",
+            "source": source,
+            "processed": 1,
+            "created": 1,
+            "updated": 0,
+            "unchanged": 0,
+            "results": [],
+        }
+
+    monkeypatch.setattr(
+        "hk_home_intel_domain.refresh.execute_launch_watch_official_refresh",
+        fake_launch_watch,
+    )
+
+    with Session(engine) as session:
+        result = execute_refresh_plan(session, plan_name="launch_watch_daily", trigger_kind="manual")
+
+    assert result["plan"] == "launch_watch_daily"
+    assert result["task_count"] == 2
+    assert captured == ["landsd-all", "srpe-recent-docs"]
 
 
 def test_execute_commercial_search_monitor_refresh_dispatches_centanet_import(tmp_path: Path, monkeypatch) -> None:

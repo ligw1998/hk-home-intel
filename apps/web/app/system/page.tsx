@@ -38,6 +38,16 @@ function monitorStrategyLabel(criteria: CommercialSearchMonitor["criteria"], wit
   return `${detailMode} / priority ${criteria.priority_level} / search ${criteria.default_limit ?? "all"}`;
 }
 
+function readinessTone(status: string): string {
+  if (status === "ready") {
+    return "good";
+  }
+  if (status === "attention") {
+    return "warning";
+  }
+  return "muted";
+}
+
 export default function SystemPage() {
   const [overview, setOverview] = useState<SystemOverview | null>(null);
   const [jobs, setJobs] = useState<RefreshJobRunSummary[]>([]);
@@ -563,7 +573,7 @@ export default function SystemPage() {
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">System Monitor</p>
         <h1>System Monitor</h1>
         <p className="lead">
@@ -593,54 +603,60 @@ export default function SystemPage() {
         <article className="panel">
           <h2>Overview</h2>
           {overview ? (
-            <dl className="kv-list">
-              <div>
-                <dt>Readiness</dt>
-                <dd>{overview.readiness_status}</dd>
+            <div className="system-health-stack">
+              <div className={`system-health-card system-health-card-${readinessTone(overview.readiness_status)}`}>
+                <span>Readiness</span>
+                <strong>{overview.readiness_status}</strong>
+                <small>{overview.latest_job?.status ?? "No jobs yet"}</small>
               </div>
-              <div>
-                <dt>Developments</dt>
-                <dd>{overview.development_count}</dd>
+              <div className="system-health-grid">
+                <div className="system-health-card">
+                  <span>Developments</span>
+                  <strong>{overview.development_count}</strong>
+                  <small>{overview.development_with_coordinates_count} mapped</small>
+                </div>
+                <div className="system-health-card">
+                  <span>Commercial listings</span>
+                  <strong>{overview.commercial_listing_count}</strong>
+                  <small>{overview.price_event_count} price events</small>
+                </div>
+                <div className={`system-health-card ${overview.attention_monitor_count > 0 ? "system-health-card-warning" : ""}`}>
+                  <span>Monitors</span>
+                  <strong>{overview.active_monitor_count}</strong>
+                  <small>{overview.attention_monitor_count} need attention</small>
+                </div>
+                <div className="system-health-card">
+                  <span>Watchlist</span>
+                  <strong>{overview.watchlist_count}</strong>
+                  <small>{overview.document_count} documents</small>
+                </div>
               </div>
-              <div>
-                <dt>With Coordinates</dt>
-                <dd>{overview.development_with_coordinates_count}</dd>
-              </div>
-              <div>
-                <dt>Documents</dt>
-                <dd>{overview.document_count}</dd>
-              </div>
-              <div>
-                <dt>Commercial Listings</dt>
-                <dd>{overview.commercial_listing_count}</dd>
-              </div>
-              <div>
-                <dt>Price Events</dt>
-                <dd>{overview.price_event_count}</dd>
-              </div>
-              <div>
-                <dt>Active Monitors</dt>
-                <dd>{overview.active_monitor_count}</dd>
-              </div>
-              <div>
-                <dt>Monitor Attention</dt>
-                <dd>{overview.attention_monitor_count}</dd>
-              </div>
-              <div>
-                <dt>Watchlist</dt>
-                <dd>{overview.watchlist_count}</dd>
-              </div>
-              {overview.readiness_notes.length > 0 ? (
+              <dl className="kv-list compact-kv-list">
                 <div>
-                  <dt>Readiness Notes</dt>
-                  <dd>{overview.readiness_notes.join(" / ")}</dd>
+                  <dt>Missing Coordinates</dt>
+                  <dd>{overview.development_missing_coordinates_count}</dd>
+                </div>
+                <div>
+                  <dt>Duplicate Name Groups</dt>
+                  <dd>{overview.duplicate_development_name_group_count}</dd>
+                </div>
+                <div>
+                  <dt>Active Listings Missing Price</dt>
+                  <dd>{overview.active_listing_missing_price_count}</dd>
+                </div>
+                <div>
+                  <dt>Commercial Canonical Official Artifacts</dt>
+                  <dd>{overview.commercial_canonical_with_official_artifact_count}</dd>
+                </div>
+              </dl>
+              {overview.readiness_notes.length > 0 ? (
+                <div className="system-note-stack">
+                  {overview.readiness_notes.map((note) => (
+                    <span key={note} className="gap-chip gap-chip-warning">{note}</span>
+                  ))}
                 </div>
               ) : null}
-              <div>
-                <dt>Latest Job</dt>
-                <dd>{overview.latest_job?.status ?? "No jobs yet"}</dd>
-              </div>
-            </dl>
+            </div>
           ) : (
             <p className="muted">{error ? `System unavailable: ${error}` : "Loading overview..."}</p>
           )}

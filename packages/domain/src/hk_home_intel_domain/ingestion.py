@@ -616,12 +616,102 @@ def upsert_development(session: Session, payload: dict[str, Any]) -> tuple[Devel
         session.flush()
         return development, True
 
+    _merge_development_fields(existing, fields)
+    session.flush()
+    return existing, False
+
+
+SOURCE_IDENTITY_PRIORITY = {
+    "srpe": 100,
+    "landsd": 90,
+    "manual": 80,
+    "centanet": 50,
+    "ricacorp": 50,
+}
+
+DEVELOPMENT_IDENTITY_FIELDS = {
+    "source",
+    "source_external_id",
+    "source_url",
+    "name_zh",
+    "name_en",
+    "address_raw",
+    "address_normalized",
+    "district",
+    "region",
+    "lat",
+    "lng",
+    "completion_year",
+    "listing_segment",
+    "source_confidence",
+}
+
+
+def _source_identity_priority(source: str | None) -> int:
+    return SOURCE_IDENTITY_PRIORITY.get(str(source or "").lower(), 10 if source else 0)
+
+
+def _merge_development_fields(existing: Development, fields: dict[str, Any]) -> None:
+    existing_priority = _source_identity_priority(existing.source)
+    incoming_priority = _source_identity_priority(fields.get("source"))
+
     for key, value in fields.items():
         if value in (None, "", [], {}):
             continue
+        if key == "aliases_json":
+            existing.aliases_json = _merge_unique_values(existing.aliases_json, value)
+            continue
+        if key in {"name_translations_json", "address_translations_json"}:
+            setattr(
+                existing,
+                key,
+                _merge_dict_values(
+                    getattr(existing, key),
+                    value,
+                    overwrite=incoming_priority >= existing_priority,
+                ),
+            )
+            continue
+        if key in {"developer_names_json", "tags_json"}:
+            setattr(existing, key, _merge_unique_values(getattr(existing, key), value))
+            continue
+
+        current_value = getattr(existing, key)
+        if incoming_priority < existing_priority and key in DEVELOPMENT_IDENTITY_FIELDS:
+            if current_value in (None, "", [], {}):
+                setattr(existing, key, value)
+            continue
+
         setattr(existing, key, value)
-    session.flush()
-    return existing, False
+
+
+def _merge_unique_values(existing: Iterable[Any] | None, incoming: Iterable[Any] | None) -> list[Any]:
+    values: list[Any] = []
+    seen: set[str] = set()
+    for value in [*(existing or []), *(incoming or [])]:
+        if value in (None, "", [], {}):
+            continue
+        key = _normalized_identity_key(str(value)) or str(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        values.append(value)
+    return values
+
+
+def _merge_dict_values(
+    existing: dict[str, Any] | None,
+    incoming: dict[str, Any] | None,
+    *,
+    overwrite: bool,
+) -> dict[str, Any]:
+    merged = dict(existing or {})
+    for key, value in (incoming or {}).items():
+        if value in (None, "", [], {}):
+            continue
+        if overwrite or merged.get(key) in (None, "", [], {}):
+            merged[key] = value
+    return merged
 
 
 def upsert_document(session: Session, payload: dict[str, Any]) -> Document:

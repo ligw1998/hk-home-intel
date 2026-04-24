@@ -13,6 +13,10 @@ export type RefreshJobRunSummary = {
 export type SystemOverview = {
   development_count: number;
   development_with_coordinates_count: number;
+  development_missing_coordinates_count: number;
+  duplicate_development_name_group_count: number;
+  active_listing_missing_price_count: number;
+  commercial_canonical_with_official_artifact_count: number;
   document_count: number;
   watchlist_count: number;
   commercial_listing_count: number;

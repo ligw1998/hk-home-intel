@@ -352,7 +352,7 @@ export default async function DevelopmentDetailPage({
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">Development Detail</p>
         <h1>{development.display_name ?? development.id}</h1>
         <p className="lead">

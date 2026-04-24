@@ -25,6 +25,7 @@ body {
 
 body {
   min-height: 100vh;
+  padding-bottom: 88px;
   font-family:
     "Avenir Next",
     "PingFang SC",
@@ -66,7 +67,32 @@ body {
   flex-wrap: wrap;
   min-width: 0;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+.app-nav-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 999px;
+  background: rgba(49, 44, 35, 0.03);
+}
+
+.app-nav-group-label {
+  padding-left: 8px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.app-nav-group-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .app-nav-link {
@@ -118,6 +144,28 @@ body {
 
 .hero-card {
   padding: 32px;
+}
+
+.hero-card-compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 18px;
+  padding: 22px 24px;
+}
+
+.hero-card-compact .lead {
+  max-width: 760px;
+  margin-top: 10px;
+}
+
+.hero-card-compact .hero-actions {
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
+.hero-card-compact h1 {
+  font-size: clamp(1.8rem, 3.2vw, 3.2rem);
 }
 
 .eyebrow {
@@ -413,6 +461,15 @@ a:hover {
   backdrop-filter: blur(12px);
 }
 
+.compare-tray-collapsed {
+  display: inline-flex;
+  width: auto;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
 .compare-tray-head {
   display: flex;
   justify-content: space-between;
@@ -558,6 +615,80 @@ a:hover {
   display: grid;
   gap: 8px;
   margin-bottom: 14px;
+}
+
+.filter-section {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 252, 245, 0.5);
+}
+
+.filter-section summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 700;
+  list-style: none;
+}
+
+.filter-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.filter-section summary::after {
+  content: "▾";
+  float: right;
+  color: var(--muted);
+}
+
+.filter-section:not([open]) summary::after {
+  content: "▸";
+}
+
+.filter-section .field:first-of-type {
+  margin-top: 12px;
+}
+
+.active-filter-row,
+.system-note-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.filter-chip,
+.gap-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.filter-chip {
+  background: rgba(53, 92, 112, 0.12);
+  color: #244456;
+}
+
+.gap-chip-info {
+  background: rgba(53, 92, 112, 0.12);
+  color: #244456;
+}
+
+.gap-chip-warning {
+  background: rgba(173, 78, 38, 0.14);
+  color: #8f441e;
+}
+
+.gap-chip-muted {
+  background: rgba(49, 44, 35, 0.08);
+  color: var(--muted);
 }
 
 .field span {
@@ -1008,6 +1139,47 @@ a:hover {
   background: #355c70;
 }
 
+.system-health-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.system-health-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.system-health-card {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid rgba(49, 44, 35, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 252, 245, 0.72);
+}
+
+.system-health-card span,
+.system-health-card small {
+  color: var(--muted);
+}
+
+.system-health-card strong {
+  font-size: 1.55rem;
+  line-height: 1;
+  text-transform: capitalize;
+}
+
+.system-health-card-good {
+  border-color: rgba(47, 97, 58, 0.24);
+  background: rgba(62, 118, 74, 0.1);
+}
+
+.system-health-card-warning {
+  border-color: rgba(173, 78, 38, 0.24);
+  background: rgba(173, 78, 38, 0.1);
+}
+
 .watchlist-layout {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
@@ -1428,6 +1600,16 @@ a:hover {
 @media (max-width: 920px) {
   .app-nav {
     width: 100%;
+    justify-content: flex-start;
+  }
+
+  .app-nav-group {
+    align-items: flex-start;
+    border-radius: 16px;
+  }
+
+  .app-nav-group-label {
+    padding-top: 7px;
   }
 
   .grid {
@@ -1511,8 +1693,20 @@ a:hover {
     padding: 24px 16px 40px;
   }
 
+  .hero-card-compact {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-card-compact .hero-actions {
+    justify-content: flex-start;
+  }
+
   .hero-card,
   .panel {
     border-radius: 18px;
+  }
+
+  .system-health-grid {
+    grid-template-columns: 1fr;
   }
 }

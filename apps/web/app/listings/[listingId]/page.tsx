@@ -188,7 +188,7 @@ export default function ListingDetailPage() {
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">Listing Detail</p>
         <h1>{detail?.title ?? "Listing Detail"}</h1>
         <p className="lead">

@@ -102,6 +102,11 @@ development
 - 当前实现主要依赖 `lat / lng`
 - `location_point` 更适合作为未来 PostgreSQL + PostGIS 扩展位
 - `listing_segment` 是当前系统视角下的主要归类，不是永久属性
+- `source / source_external_id / source_url` 这类主身份字段遵循 source priority merge：
+  - `SRPE` 作为官方 identity 优先保留
+  - 商业源匹配到 SRPE 盘时主要补 listing、价格事件、覆盖状态和缺失字段
+  - 如果商业源先建了 canonical development，后续 SRPE 命中同盘时可以提升为 SRPE identity
+- 部分 SRPE 项目没有有效楼龄时，系统会保留文件信号年作为 `completion_year` proxy，目的是让 `/map` 的楼龄筛选先有保守参考；UI 会把这类情况展示成 `Year proxy`
 - API 层会基于 `development + listing + document + transaction` 再聚合出：
   - `source_coverage`
   - `coverage_status`

@@ -39,3 +39,51 @@ limit = 10
 with_details = true
 detect_withdrawn = false
 rotation_mode = "none"
+
+[plans.commercial_daily]
+description = "Low-frequency batch refresh for active commercial search monitors."
+auto_run = false
+interval_minutes = 1440
+
+[[plans.commercial_daily.tasks]]
+job_name = "centanet_monitor_batch"
+source = "centanet"
+command = "commercial_monitor_batch"
+limit = 20
+rotation_mode = "none"
+
+[[plans.commercial_daily.tasks]]
+job_name = "ricacorp_monitor_batch"
+source = "ricacorp"
+command = "commercial_monitor_batch"
+limit = 30
+rotation_mode = "none"
+
+[plans.launch_watch_daily]
+description = "Low-frequency official launch-watch signal refresh."
+auto_run = false
+interval_minutes = 1440
+
+[[plans.launch_watch_daily.tasks]]
+job_name = "landsd_all"
+source = "landsd-all"
+command = "launch_watch_official"
+rotation_mode = "none"
+
+[[plans.launch_watch_daily.tasks]]
+job_name = "srpe_recent_docs"
+source = "srpe-recent-docs"
+command = "launch_watch_official"
+rotation_mode = "none"
+
+[plans.ricacorp_probe]
+description = "Low-frequency manual Ricacorp refresh for a single monitored search page."
+auto_run = false
+
+[[plans.ricacorp_probe.tasks]]
+job_name = "ricacorp_search_refresh"
+source = "ricacorp"
+command = "ricacorp_search_refresh"
+url = "https://www.ricacorp.com/zh-hk/property/list/buy"
+limit = 10
+rotation_mode = "none"

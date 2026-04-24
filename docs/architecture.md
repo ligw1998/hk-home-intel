@@ -203,9 +203,9 @@ hk-home-intel/
 │  ├─ migrations/
 │  └─ scripts/
 ├─ configs/
-│  ├─ sources.yaml
-│  ├─ scheduler.yaml
-│  └─ scoring.yaml
+│  ├─ commercial_monitors.toml
+│  ├─ launch_watch_projects.toml
+│  └─ scheduler.toml
 └─ docs/
 ```
 
@@ -237,15 +237,13 @@ hk-home-intel/
 当前实现补充：
 
 - 地图层使用 `Leaflet + react-leaflet`
-- 已有页面包括：
-  - `/map`
-  - `/listings`
-  - `/compare`
-  - `/shortlist`
-  - `/launch-watch`
-  - `/system`
+- 已有页面按顶部导航分为：
+  - `Decide`：`/`、`/shortlist`、`/compare`
+  - `Explore`：`/map`、`/listings`、`/launch-watch`
+  - `Track`：`/watchlist`、`/activity`、`/system`
 - `/launch-watch` 已从平铺列表升级为按官方信号强度分组的观察工作台
-- `/map` 的 `Selected` 面板会直接暴露 development coverage / data-gap
+- `/map` 的筛选栏按用途分组，`Selected` 面板会直接暴露 development coverage / data-gap
+- `/system` 已把 readiness、volume、monitor、data-quality 整合成健康卡片
 
 ## 8. 核心数据流
 
@@ -261,7 +259,7 @@ discover -> fetch -> snapshot -> parse -> normalize -> resolve entity
 3. `snapshot`：写入原始文件与内容哈希
 4. `parse`：从原始文件抽出结构化字段
 5. `normalize`：做字段清洗、面积单位统一、地址标准化
-6. `resolve entity`：把记录映射到 canonical development / unit / listing
+6. `resolve entity`：把记录映射到 canonical development / unit / listing；SRPE development identity 优先保留，商业源匹配到同盘时主要补覆盖、listing 和缺失字段
 7. `upsert`：写入主库并保留历史版本
 8. `emit events`：生成价格变动、状态变动、文档更新等事件
 9. `refresh analytics`：刷新统计指标、可比盘、评分等派生结果

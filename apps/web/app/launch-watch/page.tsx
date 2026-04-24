@@ -209,7 +209,7 @@ export default function LaunchWatchPage() {
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card hero-card-compact">
         <p className="eyebrow">Launch Watch</p>
         <h1>Upcoming New Launch Watch</h1>
         <p className="lead">
