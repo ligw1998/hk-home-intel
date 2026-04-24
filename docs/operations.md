@@ -161,6 +161,13 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
 conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
 ```
 
+当前行为：
+
+- 解析最新 LandsD 月报中的 residential pre-sale pending 表
+- 兼容 PDF 分页导致的日期/单位拆行、页眉粘连和前缀 `--` 等格式
+- 对同 source 的旧 active 项做快照式清理：如果旧项不再出现在最新月报，会标记为 `is_active = false`
+- 保留旧项而不是删除，是为了后续能追溯历史观察信号
+
 如果要把官方 `LandsD` 最新已批预售 / 转让同意项目同步进 `launch-watch`：
 
 ```bash

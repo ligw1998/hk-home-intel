@@ -198,6 +198,8 @@ source:
   - `Recent Pricing`
   - `Recent Brochure`
   - `SRPE Active`
+  - `Commercial Launch`
+- `Commercial Launch` 是商业一手快讯/新盘提示的交叉验证层，不替代 `LandsD / SRPE` 官方信号
 
 ### Phase 3
 

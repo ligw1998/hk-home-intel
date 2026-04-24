@@ -5,7 +5,15 @@ from sqlalchemy.orm import Session
 
 from hk_home_intel_domain.geo import infer_coordinates
 from hk_home_intel_domain.i18n import localize_text
-from hk_home_intel_domain.launch_watch import ensure_launch_watch_table
+from hk_home_intel_domain.launch_watch import (
+    LANDSD_ASSIGN_ISSUED_SOURCE,
+    LANDSD_ISSUED_SOURCE,
+    LANDSD_PRESALE_ISSUED_SOURCE,
+    LANDSD_PRESALE_PENDING_SOURCE,
+    SRPE_ACTIVE_FIRST_HAND_SOURCE,
+    SRPE_RECENT_DOCS_SOURCE,
+    ensure_launch_watch_table,
+)
 from hk_home_intel_domain.models import Development, LaunchWatchProject
 from hk_home_intel_shared.db import get_db_session
 
@@ -57,19 +65,21 @@ class LaunchWatchListResponse(BaseModel):
 
 def _launch_watch_signal(row: LaunchWatchProject) -> tuple[str, str, int]:
     tags = set(row.tags_json or [])
-    if row.source == "landsd_presale_pending":
+    if row.source == LANDSD_PRESALE_PENDING_SOURCE:
         return ("landsd_pending", "LandsD Pending", 0)
-    if row.source == "landsd_issued":
+    if row.source in {LANDSD_ISSUED_SOURCE, LANDSD_PRESALE_ISSUED_SOURCE, LANDSD_ASSIGN_ISSUED_SOURCE}:
         return ("landsd_issued", "LandsD Issued", 1)
-    if row.source == "srpe_recent_docs" and "pricing-signal" in tags:
+    if row.source == SRPE_RECENT_DOCS_SOURCE and "pricing-signal" in tags:
         return ("recent_pricing", "Recent Pricing", 2)
-    if row.source == "srpe_recent_docs" and "brochure-signal" in tags:
+    if row.source == SRPE_RECENT_DOCS_SOURCE and "brochure-signal" in tags:
         return ("recent_brochure", "Recent Brochure", 3)
-    if row.source == "srpe_active_first_hand":
+    if row.source == SRPE_ACTIVE_FIRST_HAND_SOURCE:
         return ("srpe_active", "SRPE Active", 4)
+    if row.source in {"centanet_news", "spacious_new_home"} or "commercial-launch" in tags:
+        return ("commercial_launch", "Commercial Launch", 5)
     if row.source == "manual":
-        return ("manual_watch", "Manual Watch", 5)
-    return ("other_watch", "Other Watch", 6)
+        return ("manual_watch", "Manual Watch", 6)
+    return ("other_watch", "Other Watch", 7)
 
 
 @router.get("", response_model=LaunchWatchListResponse)

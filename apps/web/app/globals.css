@@ -1283,6 +1283,11 @@ a:hover {
   color: #2f613a;
 }
 
+.launch-watch-badge-signal-commercial_launch {
+  background: rgba(53, 92, 112, 0.14);
+  color: #244456;
+}
+
 .launch-watch-badge-launch-watch {
   background: rgba(155, 93, 46, 0.14);
   color: #7f441f;

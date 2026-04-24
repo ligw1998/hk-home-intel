@@ -930,8 +930,40 @@ def test_launch_watch_endpoint_returns_curated_projects(isolated_app: TestClient
     assert payload["items"][0]["project_name"] == "啟德海灣第2期"
     assert payload["items"][0]["linked_development_name"] == "啟德海灣第2期"
     assert payload["items"][0]["launch_stage"] == "launch_watch"
-    assert payload["items"][0]["signal_bucket"] == "other_watch"
-    assert payload["items"][0]["signal_label"] == "Other Watch"
+    assert payload["items"][0]["signal_bucket"] == "commercial_launch"
+    assert payload["items"][0]["signal_label"] == "Commercial Launch"
+
+
+def test_launch_watch_endpoint_classifies_landsd_issued_sources(isolated_app: TestClient) -> None:
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        session.add_all(
+            [
+                LaunchWatchProject(
+                    source="landsd_presale_issued",
+                    project_name="Issued Presale",
+                    launch_stage="watch_selling",
+                    expected_launch_window="2026-03 (issued)",
+                    is_active=True,
+                    tags_json=["official", "landsd", "pre-sale-consent", "issued"],
+                ),
+                LaunchWatchProject(
+                    source="landsd_assign_issued",
+                    project_name="Issued Assign",
+                    launch_stage="watch_ballot",
+                    expected_launch_window="2026-03 (issued)",
+                    is_active=True,
+                    tags_json=["official", "landsd", "consent-to-assign", "issued"],
+                ),
+            ]
+        )
+        session.commit()
+
+    response = isolated_app.get("/api/v1/launch-watch")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert {item["signal_bucket"] for item in payload["items"]} == {"landsd_issued"}
 
 
 def test_launch_watch_endpoint_uses_new_district_centroid_for_approximate_position(

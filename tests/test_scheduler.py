@@ -179,6 +179,123 @@ Limited
     assert rows[1]["unit_count"] == 170
 
 
+def test_parse_landsd_pending_approval_pdf_text_dedupes_repeated_control_rows() -> None:
+    sample_text = """
+Particulars of applications for Presale Consent and Consent to Assign pending approval
+as at 31/03/2026
+NKIL 6458 RP
+Pending
+(Phase 1)
+Vendor Limited
+30/11/2026 361 --
+NKIL 6458 RP
+Pending NKIL 6458 RP
+Vendor Limited
+30/11/2026 361 --
+RBL 1211
+No. 2 Mansfield Road,
+Hong Kong
+Pending
+(Phase 2)
+Vendor Limited
+31/12/2027 22 --
+RBL 1211
+No. 2 Mansfield Road,
+Hong Kong
+Pending RBL 1211
+Vendor Limited
+31/12/2027 22 --
+    """.strip()
+
+    rows = parse_landsd_pending_approval_pdf_text(sample_text)
+
+    assert len(rows) == 2
+    assert {row["unit_count"] for row in rows} == {361, 22}
+
+
+def test_parse_landsd_pending_approval_pdf_text_handles_page_header_after_row() -> None:
+    sample_text = """
+Particulars of applications for Presale Consent and Consent to Assign pending approval
+as at 31/03/2026
+CWIL 178
+No. 99 Sheung On Street,
+Chai Wan,
+Hong Kong
+(Provisional)
+Phase 2 of THE HEADLAND RESIDENCES
+Joyful Sincere Limited
+28/02/2027 258 --Particulars of applications for Presale Consent and Consent to Assign pending approval
+as at 31/03/2026
+Lot 1071 in DD 103
+No. 1A Ying Ho Road,
+New Territories
+(Provisional)
+Pending
+Ease Gold Development Limited
+30/04/2027 566 --
+    """.strip()
+
+    rows = parse_landsd_pending_approval_pdf_text(sample_text)
+
+    assert len(rows) == 2
+    assert rows[0]["unit_count"] == 258
+    assert rows[1]["unit_count"] == 566
+
+
+def test_parse_landsd_pending_approval_pdf_text_handles_split_date_and_units() -> None:
+    sample_text = """
+Particulars of applications for Presale Consent and Consent to Assign pending approval
+as at 31/03/2026
+CWIL 178
+No. 99 Sheung On Street,
+Chai Wan,
+Hong Kong
+(Provisional)
+Phase 2 of THE HEADLAND RESIDENCES
+Joyful Sincere Limited
+28/02/2027
+258 --
+Lot 1071 in DD 103
+No. 1A Ying Ho Road,
+New Territories
+(Provisional)
+Pending
+Ease Gold Development Limited
+30/04/2027
+566 --
+    """.strip()
+
+    rows = parse_landsd_pending_approval_pdf_text(sample_text)
+
+    assert len(rows) == 2
+    assert rows[0]["unit_count"] == 258
+    assert rows[1]["unit_count"] == 566
+
+
+def test_parse_landsd_pending_approval_pdf_text_handles_prefixed_date_units() -> None:
+    sample_text = """
+Particulars of applications for Presale Consent and Consent to Assign pending approval
+as at 31/03/2026
+YTIL 46 RP
+Pending
+(Phase 1)
+Charm Smart Development Limited
+-- Industrial Bank Co., Ltd.
+-- 30/12/2028 617 --
+YTIL 47 RP
+Pending
+(Phase 2)
+Charm Smart Development Limited
+-- China CITIC Bank International Limited
+-- 30/12/2028 617 --Particulars of applications for Presale Consent and Consent to Assign pending approval
+    """.strip()
+
+    rows = parse_landsd_pending_approval_pdf_text(sample_text)
+
+    assert len(rows) == 2
+    assert [row["unit_count"] for row in rows] == [617, 617]
+
+
 def test_parse_landsd_issued_pdf_text_extracts_presale_and_assign_rows() -> None:
     sample_text = """
 Particulars of Presale Consent and Consent to Assign issued
@@ -448,6 +565,10 @@ Joyful Sincere Limited
     assert project.project_name == "Phase 2 of THE HEADLAND RESIDENCES"
     assert project.linked_development_id == "dev-headland"
     assert project.source == "landsd_presale_pending"
+    assert project.district == "Hong Kong East"
+    assert project.region == "Hong Kong Island"
+    assert "pending" in project.tags_json
+    assert "issued" not in project.tags_json
     assert project.official_site_url == "https://www.headland.example"
     assert project.srpe_url == "https://www.srpe.gov.hk/the-headland"
 

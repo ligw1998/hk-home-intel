@@ -17,7 +17,9 @@ from hk_home_intel_connectors.html import extract_links
 from hk_home_intel_connectors.http import create_client, fetch_text
 from hk_home_intel_connectors.srpe import SRPEAdapter
 from hk_home_intel_domain.enums import ListingSegment
+from hk_home_intel_domain.geo import infer_coordinates, infer_region_from_coordinates
 from hk_home_intel_domain.models import Development, LaunchWatchProject
+from hk_home_intel_domain.normalization import infer_region_from_district, normalize_hk_address
 
 LANDSD_PRESALE_INDEX_URL = (
     "https://www.landsd.gov.hk/en/resources/land-info-stat/dev-control-compliance/consent/presale.html"
@@ -104,8 +106,31 @@ LANDSD_LINE_SKIP_PREFIXES = (
     "Explanatory Notes",
     "Total no. of",
 )
-LANDSD_DATE_UNITS_PATTERN = re.compile(r"^(?P<date>\d{2}/\d{2}/\d{4})\s+(?P<units>\d+)\s+--$")
+LANDSD_DATE_UNITS_PATTERN = re.compile(r"^.*?(?P<date>\d{2}/\d{2}/\d{4})\s+(?P<units>\d+)\s+--(?:\s*.*)?$")
+LANDSD_DATE_ONLY_PATTERN = re.compile(r"^(?P<date>\d{2}/\d{2}/\d{4})$")
+LANDSD_UNITS_ONLY_PATTERN = re.compile(r"^(?P<units>\d+)\s+--(?:\s*.*)?$")
 LANDSD_TRAILING_DATE_PATTERN = re.compile(r"^\((?P<label>[a-f])\)\s+(?P<value>.+)$")
+LANDSD_LOCATION_FRAGMENTS: tuple[tuple[str, str], ...] = (
+    ("Kowloon Tong", "Kowloon Tong"),
+    ("Broadcast Drive", "Kowloon Tong"),
+    ("Kai Tak", "Kai Tak"),
+    ("Chai Wan", "Hong Kong East"),
+    ("Wong Chuk Hang", "Wong Chuk Hang"),
+    ("Heung Yip Road", "Wong Chuk Hang"),
+    ("Tseung Kwan O", "Tseung Kwan O"),
+    ("Lohas Park", "Lohas Park"),
+    ("Tsuen Wan", "Tsuen Wan"),
+    ("Sha Tin", "Sha Tin"),
+    ("Tai Po", "Tai Po"),
+    ("Sai Kung", "Sai Kung"),
+    ("Hiram", "Sai Kung"),
+    ("Tuen Mun", "Tuen Mun"),
+    ("Yuen Long", "Yuen Long"),
+    ("Fanling", "North"),
+    ("Heung Tsz Road", "North"),
+    ("Mansfield Road", "The Peak Area"),
+    ("Discovery Bay", "Islands"),
+)
 
 
 @dataclass
@@ -368,6 +393,8 @@ def _build_development_name_index(session: Session) -> dict[str, str]:
         for value in [
             development.name_zh,
             development.name_en,
+            development.address_raw,
+            development.address_normalized,
             *((development.name_translations_json or {}).values()),
             *((development.aliases_json or [])),
         ]:
@@ -375,6 +402,33 @@ def _build_development_name_index(session: Session) -> dict[str, str]:
             if key and key not in index:
                 index[key] = development.id
     return index
+
+
+def _infer_launch_watch_location(*values: str | None) -> tuple[str | None, str | None]:
+    text = " ".join(_collapse_spaces(value) for value in values if _collapse_spaces(value))
+    if not text:
+        return None, None
+    lowered = text.lower()
+    for fragment, district in LANDSD_LOCATION_FRAGMENTS:
+        if fragment.lower() in lowered:
+            return district, infer_region_from_district(district)
+
+    normalized_address = normalize_hk_address(text)
+    lat, lng = infer_coordinates(address=normalized_address, district=None)
+    return None, infer_region_from_coordinates(lat=lat, lng=lng)
+
+
+def _official_landsd_tags(source: str) -> list[str]:
+    tags = ["official", "landsd"]
+    if source == LANDSD_PRESALE_PENDING_SOURCE:
+        tags.extend(["pre-sale-consent", "pending"])
+    elif source == LANDSD_PRESALE_ISSUED_SOURCE:
+        tags.extend(["pre-sale-consent", "issued"])
+    elif source == LANDSD_ASSIGN_ISSUED_SOURCE:
+        tags.extend(["consent-to-assign", "issued"])
+    else:
+        tags.append("official-signal")
+    return tags
 
 
 def _build_srpe_project_link_index(
@@ -582,6 +636,7 @@ def parse_landsd_pending_approval_pdf_text(report_text: str) -> list[dict[str, A
     normalized_lines = [_collapse_spaces(line) for line in report_text.splitlines()]
     records: list[dict[str, Any]] = []
     current_lines: list[str] = []
+    pending_completion_date: date | None = None
 
     for line in normalized_lines:
         if not line:
@@ -594,18 +649,81 @@ def parse_landsd_pending_approval_pdf_text(report_text: str) -> list[dict[str, A
             if record is not None:
                 records.append(record)
             current_lines = []
+            pending_completion_date = None
             continue
+        date_only_matched = LANDSD_DATE_ONLY_PATTERN.match(line)
+        if date_only_matched:
+            pending_completion_date = datetime.strptime(date_only_matched.group("date"), "%d/%m/%Y").date()
+            continue
+        if pending_completion_date is not None:
+            units_only_matched = LANDSD_UNITS_ONLY_PATTERN.match(line)
+            if units_only_matched:
+                record = _parse_landsd_pending_record(
+                    current_lines,
+                    pending_completion_date,
+                    int(units_only_matched.group("units")),
+                )
+                if record is not None:
+                    records.append(record)
+                current_lines = []
+                pending_completion_date = None
+                continue
+            current_lines.append(pending_completion_date.strftime("%d/%m/%Y"))
+            pending_completion_date = None
         current_lines.append(line)
 
     deduped: list[dict[str, Any]] = []
-    seen: set[tuple[str, date, int]] = set()
     for item in records:
-        key = (_normalize_name(item["project_name"]), item["estimated_completion_date"], item["unit_count"])
-        if key in seen or not key[0]:
+        if not _normalize_name(item.get("lot_no") or item.get("address") or item["project_name"]):
             continue
-        seen.add(key)
-        deduped.append(item)
+        duplicate_index = next(
+            (
+                index
+                for index, existing in enumerate(deduped)
+                if _is_duplicate_pending_record(existing, item)
+            ),
+            None,
+        )
+        if duplicate_index is None:
+            deduped.append(item)
+            continue
+        if _pending_record_name_score(item) > _pending_record_name_score(deduped[duplicate_index]):
+            deduped[duplicate_index] = item
     return deduped
+
+
+def _pending_record_location_key(item: dict[str, Any]) -> str:
+    return _normalize_name(item.get("lot_no") or item.get("address") or item["project_name"])
+
+
+def _pending_record_phase_key(item: dict[str, Any]) -> str | None:
+    matched = re.search(r"phase\s+([0-9a-z()\-]+)", _collapse_spaces(item.get("project_name") or ""), re.IGNORECASE)
+    return _normalize_name(matched.group(1)) if matched else None
+
+
+def _is_duplicate_pending_record(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    if _pending_record_location_key(left) != _pending_record_location_key(right):
+        return False
+    if left["estimated_completion_date"] != right["estimated_completion_date"]:
+        return False
+    if left["unit_count"] != right["unit_count"]:
+        return False
+    left_phase = _pending_record_phase_key(left)
+    right_phase = _pending_record_phase_key(right)
+    return left_phase == right_phase or left_phase is None or right_phase is None
+
+
+def _pending_record_name_score(item: dict[str, Any]) -> tuple[int, int]:
+    project_name = _collapse_spaces(item.get("project_name") or "")
+    normalized = _normalize_name(project_name)
+    score = 0
+    if normalized and not normalized.startswith("pending"):
+        score += 5
+    if "phase" in project_name.lower():
+        score += 2
+    if item.get("address") and item["address"] in project_name:
+        score += 1
+    return score, len(project_name)
 
 
 def _parse_landsd_issued_presale_record(
@@ -699,7 +817,7 @@ def parse_landsd_issued_pdf_text(report_text: str) -> list[dict[str, Any]]:
             elif label == "c":
                 completion_date = _parse_landsd_date(value)
             continue
-        if issue_date and re.match(r"^\d+\s+\d+\s+--$", line):
+        if issue_date and re.match(r"^\d+\s+\d+\s+--(?:\s*.*)?$", line):
             unit_count = int(_collapse_spaces(line).split()[1])
             record = _parse_landsd_issued_presale_record(
                 current_lines,
@@ -800,17 +918,25 @@ def _sync_launch_watch_official_records(
         seen_names.add(dedupe_key)
 
         linked_development_id = None
-        for candidate in _launch_watch_match_candidates(project_name):
+        match_candidates = [
+            *_launch_watch_match_candidates(project_name),
+            item.get("address"),
+            item.get("lot_no"),
+        ]
+        for candidate in match_candidates:
+            if not candidate:
+                continue
             matched_id = development_index.get(_normalize_name(candidate))
             if matched_id:
                 linked_development_id = matched_id
                 break
 
-        tags = ["official", "landsd", "issued"]
-        if source == LANDSD_PRESALE_ISSUED_SOURCE:
-            tags.extend(["pre-sale-consent", "issued"])
-        else:
-            tags.extend(["consent-to-assign", "issued"])
+        district, region = _infer_launch_watch_location(
+            item.get("address"),
+            project_name,
+            item.get("lot_no"),
+            item.get("note"),
+        )
 
         issue_date = item.get("issue_date")
         date_token = issue_date.strftime("%Y%m") if issue_date else "unknown"
@@ -820,12 +946,14 @@ def _sync_launch_watch_official_records(
                 "source_project_id": f"{date_token}:{_normalize_name(project_name)}",
                 "project_name": project_name,
                 "project_name_en": project_name,
+                "district": district,
+                "region": region,
                 "expected_launch_window": item["expected_launch_window"],
                 "launch_stage": item["launch_stage"],
                 "source_url": report_url,
                 "linked_development_id": linked_development_id,
                 "note": item["note"],
-                "tags": tags,
+                "tags": _official_landsd_tags(source),
                 "is_active": True,
             },
         )
@@ -838,6 +966,12 @@ def _sync_launch_watch_official_records(
             if item.get("linked_development_id")
         },
     )
+    active_source_project_ids = {
+        (str(item["source"]), str(item["source_project_id"]))
+        for item in normalized_records
+        if item.get("source_project_id")
+    }
+    active_sources = {source for source, _ in active_source_project_ids}
 
     for item in normalized_records:
         linked_development_id = item.get("linked_development_id")
@@ -874,6 +1008,20 @@ def _sync_launch_watch_official_records(
             updated += 1
         else:
             unchanged += 1
+
+    for existing in session.scalars(
+        select(LaunchWatchProject).where(
+            LaunchWatchProject.source.in_(sorted(active_sources)),
+            LaunchWatchProject.is_active.is_(True),
+        )
+    ).all():
+        if not existing.source_project_id:
+            continue
+        if (existing.source, existing.source_project_id) in active_source_project_ids:
+            continue
+        updated += 1
+        if not dry_run:
+            existing.is_active = False
 
     if not dry_run:
         session.commit()

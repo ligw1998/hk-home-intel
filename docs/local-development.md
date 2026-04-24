@@ -290,6 +290,8 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
 conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
 ```
 
+`landsd-pending` 当前按最新月报做快照式同步：PDF 解析会处理分页、拆行和前缀噪音；同 source 旧 active 项如果已经不在最新月报里，会被标记为 inactive，而不是删除。
+
 如果要补最新官方已批预售 / 转让同意项目：
 
 ```bash

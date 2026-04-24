@@ -295,6 +295,12 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
 conda run -n py311 hhi-worker sync-launch-watch-official --source landsd-pending
 ```
 
+说明：
+
+- 命令没有变化，推荐先 `--dry-run` 看 `processed / created / updated / unchanged`
+- `landsd-pending` 是按最新 LandsD 月报做快照同步；不在最新报告中的同 source 旧 active 项会被标记为 inactive
+- inactive 项不会在默认 `/launch-watch` 和 `/map` 中显示，但会保留在数据库里用于追溯
+
 已批预售 / 转让同意：
 
 ```bash
@@ -336,6 +342,7 @@ conda run -n py311 hhi-worker sync-launch-watch-official --source srpe-recent-do
 - `/map` 里打开 `Show launch-watch`
 - `/launch-watch` 默认按更强的官方信号优先分组
 - `/map` 右侧 `Selected` 面板会显示 linked development 与 coverage / data-gap
+- 商业一手快讯类项目会归入 `Commercial Launch`，排序低于官方/SRPE 强信号，高于 manual/other
 
 ## 5. Daily Maintenance
 

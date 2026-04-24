@@ -56,6 +56,8 @@
   - `landsd-all`
   - `srpe-recent-docs`
   - `srpe-active`
+  - LandsD 官方同步会以最新月报为准，自动停用同 source 下已不在最新报告里的旧 active 项
+  - 商业一手快讯类信号会单独归为 `Commercial Launch`，用于和官方信号交叉验证
 - canonical 数据模型与本地 SQLite 开发数据库
 - 地图页、房源流、单盘详情、单 listing 详情、watchlist、activity、system monitor、compare、launch-watch
 - refresh plan、commercial search monitor、基础本地 scheduler

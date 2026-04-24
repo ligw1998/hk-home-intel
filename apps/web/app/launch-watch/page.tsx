@@ -43,6 +43,7 @@ const SIGNAL_BUCKETS = [
   "recent_pricing",
   "recent_brochure",
   "srpe_active",
+  "commercial_launch",
   "manual_watch",
   "other_watch",
 ];
@@ -52,6 +53,7 @@ const SIGNAL_BUCKET_DESCRIPTIONS: Record<string, string> = {
   recent_pricing: "Recent price list or sales arrangement activity on SRPE.",
   recent_brochure: "Recent brochure activity without stronger pricing signal yet.",
   srpe_active: "Still inside the official first-hand selling chain, but weaker than recent pricing.",
+  commercial_launch: "Commercial first-hand launch signal that should be cross-checked against official sources.",
   manual_watch: "Manually seeded watch items and curated observations.",
   other_watch: "Residual watch items that do not fit the stronger official buckets.",
 };
