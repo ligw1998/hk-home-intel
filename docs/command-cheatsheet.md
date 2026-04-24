@@ -5,10 +5,10 @@
 - 现在要扩哪些盘，先跑什么、后跑什么
 - 每条命令到底在做什么
 
-默认工作目录：
+默认从仓库根目录执行命令：
 
 ```bash
-cd /Users/ligw1998/Projects/hk-home-intel
+cd hk-home-intel
 ```
 
 默认 Python 环境：
@@ -21,6 +21,10 @@ conda run -n py311 ...
 
 如果你是在另一台电脑上 `git clone` 一个全新仓库，先做这套准备：
 
+Windows 用户也可以直接看完整说明：[Windows Onboarding](windows-onboarding.md)。
+
+macOS / Linux:
+
 ```bash
 git clone <your-repo-url>
 cd hk-home-intel
@@ -28,6 +32,18 @@ conda create -n py311 python=3.11 -y
 conda run -n py311 python -m pip install --no-build-isolation -e ".[dev]"
 npm install
 cp .env.example .env
+conda run -n py311 alembic upgrade head
+```
+
+Windows PowerShell:
+
+```powershell
+git clone <your-repo-url>
+cd hk-home-intel
+conda create -n py311 python=3.11 -y
+conda run -n py311 python -m pip install --no-build-isolation -e ".[dev]"
+npm install
+Copy-Item .env.example .env
 conda run -n py311 alembic upgrade head
 ```
 
@@ -43,6 +59,19 @@ npm run dev:web
 ```bash
 curl http://127.0.0.1:8000/api/v1/health
 ```
+
+Windows PowerShell:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
+```
+
+Windows 运行注意：
+
+- `conda run -n py311 hhi-api` 与所有 `hhi-worker ...` 命令保持一致。
+- Python conda 环境不包含前端运行时，仍需安装 Node.js `20+` 和 `npm`。
+- 如果 PowerShell 报 `npm.ps1 cannot be loaded`，可用 `cmd /c npm run dev:web` 启动前端，或调整当前用户 execution policy。
+- 默认 `.env` 使用 `sqlite:///./data/dev/hk_home_intel.db`，请从仓库根目录运行；绝对路径建议写成 `sqlite:///C:/Users/<you>/Projects/hk-home-intel/data/dev/hk_home_intel.db`。
 
 如果是空库，接下来再按本文件里的 `SRPE -> commercial discovery -> batch refresh -> launch-watch` 顺序导入数据。
 

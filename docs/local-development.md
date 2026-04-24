@@ -25,6 +25,10 @@ cd hk-home-intel
 - Node.js `20+`
 - `npm`
 
+Windows 也可以按这套链路运行；主要差异是 PowerShell 的文件复制、健康检查命令和可能的 `npm.ps1` 执行策略，不需要改业务代码。
+
+如果你是在 Windows 上首次 onboarding，可以直接看独立文档：[Windows Onboarding](windows-onboarding.md)。
+
 ### 2.1 创建 Python 环境
 
 如果新机器上还没有 `py311`：
@@ -53,6 +57,12 @@ npm install
 
 ```bash
 cp .env.example .env
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
 ```
 
 默认这套仓库可以直接用本地 SQLite 跑起来，不需要先配 PostgreSQL。
@@ -92,10 +102,22 @@ npm run dev:web
 curl http://127.0.0.1:8000/api/v1/health
 ```
 
+Windows PowerShell:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
+```
+
 空库时 `developments` 正常会是空列表：
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/developments
+```
+
+Windows PowerShell:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/developments
 ```
 
 ### 2.8 First Data Load
@@ -148,6 +170,12 @@ npm install
 cp .env.example .env
 ```
 
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
 如果需要切到 PostgreSQL，可修改：
 
 ```bash
@@ -164,6 +192,18 @@ HHI_CORS_ALLOW_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 
 ```bash
 HHI_HTTP_TRUST_ENV=false
+```
+
+Windows 下默认 SQLite 配置可以保持：
+
+```bash
+HHI_DATABASE_URL=sqlite:///./data/dev/hk_home_intel.db
+```
+
+这要求从仓库根目录运行 `hhi-api` / `hhi-worker`。如果你想改成绝对路径，建议在 `.env` 里使用 forward slash：
+
+```bash
+HHI_DATABASE_URL=sqlite:///C:/Users/<you>/Projects/hk-home-intel/data/dev/hk_home_intel.db
 ```
 
 ## 6. 启动 API
@@ -186,10 +226,22 @@ conda run -n py311 hhi-api
 curl http://127.0.0.1:8000/api/v1/health
 ```
 
+Windows PowerShell:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
+```
+
 空数据库下，development 列表接口会返回空集合：
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/developments
+```
+
+Windows PowerShell:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/developments
 ```
 
 导入示例 SRPE 数据：
@@ -462,6 +514,12 @@ conda run -n py311 hhi-worker download-srpe-documents --source-external-id 11365
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/developments
+```
+
+Windows PowerShell 可用：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/developments
 ```
 
 按语言查看 development 显示名：

@@ -12,6 +12,7 @@
 - [API 设计](docs/api-design.md)
 - [开发路线图](docs/roadmap.md)
 - [本地开发](docs/local-development.md)
+- [Windows Onboarding](docs/windows-onboarding.md)
 - [运行手册](docs/operations.md)
 - [命令速查](docs/command-cheatsheet.md)
 
@@ -73,13 +74,9 @@
 
 ## Quickstart
 
-默认工作目录：
-
-```bash
-cd /Users/ligw1998/Projects/hk-home-intel
-```
-
 ### Fresh Clone
+
+macOS / Linux:
 
 ```bash
 git clone <your-repo-url>
@@ -88,6 +85,18 @@ conda create -n py311 python=3.11 -y
 conda run -n py311 python -m pip install --no-build-isolation -e ".[dev]"
 npm install
 cp .env.example .env
+conda run -n py311 alembic upgrade head
+```
+
+Windows PowerShell:
+
+```powershell
+git clone <your-repo-url>
+cd hk-home-intel
+conda create -n py311 python=3.11 -y
+conda run -n py311 python -m pip install --no-build-isolation -e ".[dev]"
+npm install
+Copy-Item .env.example .env
 conda run -n py311 alembic upgrade head
 ```
 
@@ -102,6 +111,13 @@ npm run dev:web
 
 - API: `http://127.0.0.1:8000`
 - Web: `http://127.0.0.1:3000`
+
+Windows 额外注意：
+
+- 代码链路不需要额外适配；`hhi-api`、`hhi-worker`、`npm run dev:web` 命令保持一致。
+- Python conda 环境不等于 Node 环境；Windows 上仍需能执行 `node` / `npm`，建议 Node.js `20+`。
+- 如果 PowerShell 拦截 `npm.ps1`，可改用 `cmd /c npm run dev:web`，或调整当前用户的 PowerShell execution policy。
+- 默认 `.env` 使用相对 SQLite URL，需从仓库根目录运行命令；如果改成绝对路径，建议写成 `sqlite:///C:/Users/<you>/Projects/hk-home-intel/data/dev/hk_home_intel.db`。
 
 ### First Data Load
 
