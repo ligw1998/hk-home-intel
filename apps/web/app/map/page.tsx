@@ -19,13 +19,32 @@ import type {
   WatchlistItem,
 } from "./map-types";
 import {
+  DEFAULT_MAX_AGE_YEARS,
   DEFAULT_SEGMENTS,
   SUGGESTED_BEDROOM_VALUES,
-  applyPresetCriteria,
   buildCriteriaFromState,
 } from "./map-utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const MAP_FILTER_STORAGE_KEY = "hhi.map.filters.v1";
+const VALID_SOURCE_FILTERS = new Set(["all", "srpe", "centanet", "ricacorp"]);
+const VALID_SEGMENTS = new Set(DEFAULT_SEGMENTS);
+
+type StoredMapFilters = {
+  search?: unknown;
+  region?: unknown;
+  district?: unknown;
+  segments?: unknown;
+  sourceFilter?: unknown;
+  minBudgetHkd?: unknown;
+  maxBudgetHkd?: unknown;
+  bedroomValues?: unknown;
+  minSaleableAreaSqft?: unknown;
+  maxSaleableAreaSqft?: unknown;
+  maxAgeYears?: unknown;
+  watchlistOnly?: unknown;
+  showLaunchWatch?: unknown;
+};
 
 const DevelopmentLeafletMap = dynamic(
   () =>
@@ -53,9 +72,10 @@ function MapPageContent() {
   const [bedroomValues, setBedroomValues] = useState<number[]>([]);
   const [minSaleableAreaSqft, setMinSaleableAreaSqft] = useState("");
   const [maxSaleableAreaSqft, setMaxSaleableAreaSqft] = useState("");
-  const [maxAgeYears, setMaxAgeYears] = useState("");
+  const [maxAgeYears, setMaxAgeYears] = useState(DEFAULT_MAX_AGE_YEARS);
   const [watchlistOnly, setWatchlistOnly] = useState(false);
   const [showLaunchWatch, setShowLaunchWatch] = useState(true);
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
   const [launchWatchItems, setLaunchWatchItems] = useState<LaunchWatchMapItem[]>([]);
   const [selectedLaunchWatchId, setSelectedLaunchWatchId] = useState<string | null>(null);
   const [presetName, setPresetName] = useState("Buyer Focus");
@@ -63,6 +83,89 @@ function MapPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [presetInfo, setPresetInfo] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(MAP_FILTER_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const stored = JSON.parse(raw) as StoredMapFilters;
+      setSearch(typeof stored.search === "string" ? stored.search : "");
+      setRegion(typeof stored.region === "string" && stored.region ? stored.region : "all");
+      setDistrict(typeof stored.district === "string" && stored.district ? stored.district : "all");
+      if (Array.isArray(stored.segments)) {
+        const nextSegments = stored.segments.filter(
+          (item): item is string => typeof item === "string" && VALID_SEGMENTS.has(item),
+        );
+        setSegments(nextSegments.length > 0 ? nextSegments : DEFAULT_SEGMENTS);
+      }
+      setSourceFilter(
+        typeof stored.sourceFilter === "string" && VALID_SOURCE_FILTERS.has(stored.sourceFilter)
+          ? stored.sourceFilter
+          : "all",
+      );
+      setMinBudgetHkd(typeof stored.minBudgetHkd === "string" ? stored.minBudgetHkd : "");
+      setMaxBudgetHkd(typeof stored.maxBudgetHkd === "string" ? stored.maxBudgetHkd : "");
+      if (Array.isArray(stored.bedroomValues)) {
+        setBedroomValues(
+          stored.bedroomValues.filter(
+            (item): item is number => typeof item === "number" && [0, 1, 2, 3].includes(item),
+          ),
+        );
+      }
+      setMinSaleableAreaSqft(
+        typeof stored.minSaleableAreaSqft === "string" ? stored.minSaleableAreaSqft : "",
+      );
+      setMaxSaleableAreaSqft(
+        typeof stored.maxSaleableAreaSqft === "string" ? stored.maxSaleableAreaSqft : "",
+      );
+      setMaxAgeYears(typeof stored.maxAgeYears === "string" ? stored.maxAgeYears : DEFAULT_MAX_AGE_YEARS);
+      setWatchlistOnly(typeof stored.watchlistOnly === "boolean" ? stored.watchlistOnly : false);
+      setShowLaunchWatch(typeof stored.showLaunchWatch === "boolean" ? stored.showLaunchWatch : true);
+    } catch {
+      window.localStorage.removeItem(MAP_FILTER_STORAGE_KEY);
+    } finally {
+      setFiltersHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydrated) {
+      return;
+    }
+    const snapshot = {
+      search,
+      region,
+      district,
+      segments,
+      sourceFilter,
+      minBudgetHkd,
+      maxBudgetHkd,
+      bedroomValues,
+      minSaleableAreaSqft,
+      maxSaleableAreaSqft,
+      maxAgeYears,
+      watchlistOnly,
+      showLaunchWatch,
+    };
+    window.localStorage.setItem(MAP_FILTER_STORAGE_KEY, JSON.stringify(snapshot));
+  }, [
+    bedroomValues,
+    district,
+    filtersHydrated,
+    maxAgeYears,
+    maxBudgetHkd,
+    maxSaleableAreaSqft,
+    minBudgetHkd,
+    minSaleableAreaSqft,
+    region,
+    search,
+    segments,
+    showLaunchWatch,
+    sourceFilter,
+    watchlistOnly,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,19 +193,6 @@ function MapPageContent() {
           setPresets(presetsPayload);
           const defaultPreset = presetsPayload.find((item) => item.is_default);
           if (defaultPreset) {
-            applyPresetCriteria(defaultPreset.criteria, {
-              setRegion,
-              setDistrict,
-              setSearch,
-              setSegments,
-              setMinBudgetHkd,
-              setMaxBudgetHkd,
-              setBedroomValues,
-              setMinSaleableAreaSqft,
-              setMaxSaleableAreaSqft,
-              setMaxAgeYears,
-              setWatchlistOnly,
-            });
             setPresetName(defaultPreset.name);
             setPresetNote(defaultPreset.note ?? "");
           }
@@ -124,6 +214,9 @@ function MapPageContent() {
     let cancelled = false;
 
     async function loadLaunchWatch() {
+      if (!filtersHydrated) {
+        return;
+      }
       if (!showLaunchWatch) {
         setLaunchWatchItems([]);
         setSelectedLaunchWatchId(null);
@@ -153,12 +246,15 @@ function MapPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [showLaunchWatch]);
+  }, [filtersHydrated, showLaunchWatch]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadDevelopments() {
+      if (!filtersHydrated) {
+        return;
+      }
       try {
         setLoading(true);
         const requestedSelectedId = searchParams.get("selected");
@@ -254,7 +350,7 @@ function MapPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [bedroomValues, district, maxAgeYears, maxBudgetHkd, maxSaleableAreaSqft, minBudgetHkd, minSaleableAreaSqft, region, search, searchParams, segments, sourceFilter, watchlistByDevelopment, watchlistOnly]);
+  }, [bedroomValues, district, filtersHydrated, maxAgeYears, maxBudgetHkd, maxSaleableAreaSqft, minBudgetHkd, minSaleableAreaSqft, region, search, searchParams, segments, sourceFilter, watchlistByDevelopment, watchlistOnly]);
 
   const regions = useMemo(() => {
     return Array.from(

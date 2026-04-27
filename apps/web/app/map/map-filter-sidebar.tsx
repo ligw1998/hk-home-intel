@@ -236,7 +236,7 @@ export function MapFilterSidebar(props: Props) {
         {loading ? "Refreshing development candidates..." : `Showing ${developmentsCount} developments matched to the current preference set.`}
       </p>
       <p className="muted">
-        Default view is broad live data. Use <code>Apply buyer focus</code> when you want the tighter 800萬-1800萬 / 400-750呎（約 37-70 平方米） / 2房優先 / 10年內 filter.
+        Default view keeps all market types selected with age {"<="} 10. Use <code>Apply buyer focus</code> when you want the tighter 800萬-1800萬 / 400-750呎（約 37-70 平方米） / 2房優先 filter.
       </p>
 
       <dl className="kv-list compact-kv-list">

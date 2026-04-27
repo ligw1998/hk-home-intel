@@ -1,6 +1,7 @@
 import type { DevelopmentSummary, SearchPresetCriteria } from "./map-types";
 
-export const DEFAULT_SEGMENTS = ["new", "first_hand_remaining", "second_hand"];
+export const DEFAULT_MAX_AGE_YEARS = "10";
+export const DEFAULT_SEGMENTS = ["new", "first_hand_remaining", "second_hand", "mixed"];
 export const SUGGESTED_BEDROOM_VALUES = [2, 3, 1, 0];
 export const MARKET_TYPE_OPTIONS = [
   { value: "primary_market", label: "Primary market" },
