@@ -48,6 +48,10 @@
 
 1. Address Lookup Service
 2. Lands Department Location Search / Geocoding 类服务
+3. Lands Department iGeoCom / data.gov.hk Geo-Community Database
+   - 当前用于 `/map` 的 MTR station / railway access overlay
+   - UI 重点展示站点、线路归属和出入口点，不用站点直线模拟真实轨道
+   - 作用是辅助判断楼盘与港铁站的大致距离，不作为楼盘 canonical identity
 
 ### 2.2A：预售 / 待抽签 / 新盘前哨源
 

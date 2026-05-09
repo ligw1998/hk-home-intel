@@ -823,11 +823,18 @@ a:hover {
   font: inherit;
 }
 
-.map-fullscreen-toggle {
+.map-overlay-controls {
   position: absolute;
   top: 14px;
   right: 14px;
   z-index: 900;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.map-control-button {
   padding: 10px 14px;
   border: 1px solid rgba(49, 44, 35, 0.12);
   border-radius: 999px;
@@ -838,8 +845,14 @@ a:hover {
   box-shadow: 0 12px 28px rgba(49, 44, 35, 0.12);
 }
 
-.map-fullscreen-toggle:hover {
+.map-control-button:hover {
   color: var(--accent);
+}
+
+.map-control-button-active {
+  border-color: rgba(0, 136, 138, 0.28);
+  background: rgba(0, 136, 138, 0.12);
+  color: #07575b;
 }
 
 .map-legend-overlay {
@@ -879,6 +892,53 @@ a:hover {
 .map-popup span {
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+.mtr-station-tooltip {
+  border: 1px solid rgba(49, 44, 35, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 252, 245, 0.94);
+  color: #1f1b16;
+  font-size: 0.72rem;
+  font-weight: 700;
+  box-shadow: 0 6px 14px rgba(49, 44, 35, 0.12);
+}
+
+.mtr-distance-chip {
+  display: inline-flex;
+  width: fit-content;
+  padding: 7px 10px;
+  border: 1px solid rgba(0, 136, 138, 0.18);
+  border-radius: 999px;
+  background: rgba(0, 136, 138, 0.1);
+  color: #07575b !important;
+  font-weight: 700;
+}
+
+.mtr-legend-station {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #00888a;
+  border-radius: 999px;
+  background: #fffaf0;
+}
+
+.mtr-legend-access {
+  display: inline-flex;
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255, 250, 240, 0.95);
+  border-radius: 999px;
+  background: #00888a;
+  box-shadow: 0 0 0 1px rgba(49, 44, 35, 0.16);
+}
+
+.mtr-legend-nearest {
+  display: inline-flex;
+  width: 22px;
+  height: 0;
+  border-top: 2px dashed #1f1b16;
 }
 
 .bubble-primary {

@@ -5,13 +5,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleMarker,
   MapContainer,
+  Pane,
   Popup,
+  Polyline,
   TileLayer,
+  Tooltip,
   useMap,
+  useMapEvents,
 } from "react-leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
 
 import { formatListingSegment } from "../lib/segment";
+import {
+  MTR_ACCESS_POINTS,
+  MTR_STATIONS,
+  findNearestMtrStation,
+  formatMtrDistance,
+  mtrAccessPointLabel,
+  mtrLineNames,
+  mtrStationColor,
+} from "../map/mtr-overlay-data";
 import type {
   DevelopmentLaunchWatchSignal,
   DevelopmentSummary,
@@ -125,6 +138,28 @@ function InvalidateOnFullscreen({ tick }: { tick: number }) {
   return null;
 }
 
+function MtrZoomObserver({
+  onAccessVisibilityChange,
+  onLabelVisibilityChange,
+}: {
+  onAccessVisibilityChange: (visible: boolean) => void;
+  onLabelVisibilityChange: (visible: boolean) => void;
+}) {
+  const map = useMapEvents({
+    zoomend: () => {
+      onAccessVisibilityChange(map.getZoom() >= 15);
+      onLabelVisibilityChange(map.getZoom() >= 14);
+    },
+  });
+
+  useEffect(() => {
+    onAccessVisibilityChange(map.getZoom() >= 15);
+    onLabelVisibilityChange(map.getZoom() >= 14);
+  }, [map, onAccessVisibilityChange, onLabelVisibilityChange]);
+
+  return null;
+}
+
 function buildDisplayCoordinateMap(
   developments: DevelopmentSummary[],
   launchWatchItems: LaunchWatchMapItem[],
@@ -191,6 +226,19 @@ export function DevelopmentLeafletMap({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenTick, setFullscreenTick] = useState(0);
+  const [showMtrOverlay, setShowMtrOverlay] = useState(true);
+  const [showMtrAccessPoints, setShowMtrAccessPoints] = useState(false);
+  const [showMtrLabels, setShowMtrLabels] = useState(false);
+  const selectedPoint =
+    selected && selected.lat !== null && selected.lng !== null
+      ? { lat: selected.lat, lng: selected.lng }
+      : selectedLaunchWatch && selectedLaunchWatch.lat !== null && selectedLaunchWatch.lng !== null
+        ? { lat: selectedLaunchWatch.lat, lng: selectedLaunchWatch.lng }
+        : null;
+  const nearestMtrStation = useMemo(
+    () => (selectedPoint ? findNearestMtrStation(selectedPoint.lat, selectedPoint.lng) : null),
+    [selectedPoint],
+  );
 
   useEffect(() => {
     function handleFullscreenChange() {
@@ -221,9 +269,18 @@ export function DevelopmentLeafletMap({
       ref={shellRef}
       className={isFullscreen ? "leaflet-shell leaflet-shell-fullscreen" : "leaflet-shell"}
     >
-      <button type="button" className="map-fullscreen-toggle" onClick={() => void toggleFullscreen()}>
-        {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-      </button>
+      <div className="map-overlay-controls">
+        <button type="button" className="map-control-button" onClick={() => void toggleFullscreen()}>
+          {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+        </button>
+        <button
+          type="button"
+          className={showMtrOverlay ? "map-control-button map-control-button-active" : "map-control-button"}
+          onClick={() => setShowMtrOverlay((current) => !current)}
+        >
+          {showMtrOverlay ? "MTR on" : "MTR off"}
+        </button>
+      </div>
       <MapContainer
         center={DEFAULT_MAP_CENTER}
         zoom={DEFAULT_MAP_ZOOM}
@@ -234,10 +291,100 @@ export function DevelopmentLeafletMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <MtrZoomObserver
+          onAccessVisibilityChange={setShowMtrAccessPoints}
+          onLabelVisibilityChange={setShowMtrLabels}
+        />
         <FitToDevelopments items={developments} enabled={Boolean(selectedId)} />
         <PanToSelection item={selected} />
         <PanToLaunchWatchSelection item={selectedLaunchWatch} />
         <InvalidateOnFullscreen tick={fullscreenTick} />
+        {showMtrOverlay ? (
+          <>
+            <Pane name="mtr-stations" style={{ zIndex: 390 }}>
+              {MTR_STATIONS.map((station) => (
+                <CircleMarker
+                  key={`mtr-station-${station.id}`}
+                  center={[station.lat, station.lng]}
+                  radius={showMtrLabels ? 4.8 : 3.6}
+                  pathOptions={{
+                    color: mtrStationColor(station),
+                    fillColor: "#fffaf0",
+                    fillOpacity: 0.95,
+                    opacity: 0.92,
+                    weight: 2,
+                  }}
+                >
+                  {showMtrLabels ? (
+                    <Tooltip permanent direction="top" offset={[0, -7]} className="mtr-station-tooltip">
+                      {station.name}
+                    </Tooltip>
+                  ) : (
+                    <Tooltip sticky className="mtr-station-tooltip">
+                      {station.name}
+                    </Tooltip>
+                  )}
+                  <Popup>
+                    <div className="map-popup">
+                      <strong>{station.name}</strong>
+                      <span>{mtrLineNames(station).join(" / ") || "MTR station"}</span>
+                      <span>{station.exitCount > 0 ? `${station.exitCount} mapped access point(s)` : "Station coordinate"}</span>
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              ))}
+            </Pane>
+            {showMtrAccessPoints ? (
+              <Pane name="mtr-access-points" style={{ zIndex: 392 }}>
+                {MTR_ACCESS_POINTS.map((accessPoint) => (
+                  <CircleMarker
+                    key={`mtr-access-${accessPoint.id}`}
+                    center={[accessPoint.lat, accessPoint.lng]}
+                    radius={2.8}
+                    pathOptions={{
+                      color: mtrStationColor(accessPoint.station),
+                      fillColor: mtrStationColor(accessPoint.station),
+                      fillOpacity: 0.76,
+                      opacity: 0.9,
+                      weight: 1.5,
+                    }}
+                  >
+                    <Tooltip sticky className="mtr-station-tooltip">
+                      {mtrAccessPointLabel(accessPoint)}
+                    </Tooltip>
+                    <Popup>
+                      <div className="map-popup">
+                        <strong>{mtrAccessPointLabel(accessPoint)}</strong>
+                        <span>{mtrLineNames(accessPoint.station).join(" / ") || "MTR access"}</span>
+                        <span>{accessPoint.lat.toFixed(5)}, {accessPoint.lng.toFixed(5)}</span>
+                      </div>
+                    </Popup>
+                  </CircleMarker>
+                ))}
+              </Pane>
+            ) : null}
+            {selectedPoint && nearestMtrStation ? (
+              <Pane name="mtr-nearest" style={{ zIndex: 395 }}>
+                <Polyline
+                  positions={[
+                    [selectedPoint.lat, selectedPoint.lng],
+                    [
+                      nearestMtrStation.accessPoint?.lat ?? nearestMtrStation.station.lat,
+                      nearestMtrStation.accessPoint?.lng ?? nearestMtrStation.station.lng,
+                    ],
+                  ]}
+                  pathOptions={{ color: "#1f1b16", dashArray: "5 7", opacity: 0.58, weight: 2 }}
+                >
+                  <Tooltip sticky>
+                    {nearestMtrStation.accessPoint
+                      ? mtrAccessPointLabel(nearestMtrStation.accessPoint)
+                      : nearestMtrStation.station.name} / {formatMtrDistance(nearestMtrStation.distanceMeters)}
+                  </Tooltip>
+                </Polyline>
+              </Pane>
+            ) : null}
+          </>
+        ) : null}
         {developments.map((item) => {
           if (item.lat === null || item.lng === null) {
             return null;
@@ -281,6 +428,13 @@ export function DevelopmentLeafletMap({
                     <span>{launchSignals[0].expected_launch_window}</span>
                   ) : null}
                   {watchlistStage ? <span>Watchlist / {watchlistStage}</span> : null}
+                  {item.id === selectedId && nearestMtrStation ? (
+                    <span>
+                      Nearest MTR / {nearestMtrStation.accessPoint
+                        ? mtrAccessPointLabel(nearestMtrStation.accessPoint)
+                        : nearestMtrStation.station.name} / {formatMtrDistance(nearestMtrStation.distanceMeters)}
+                    </span>
+                  ) : null}
                   <div className="map-popup-actions">
                     <Link href={`/developments/${item.id}`} className="action-link">
                       Detail
@@ -344,6 +498,13 @@ export function DevelopmentLeafletMap({
                   {item.expected_launch_window ? <span>{item.expected_launch_window}</span> : null}
                   {item.linked_development_name ? <span>Linked / {item.linked_development_name}</span> : null}
                   {item.note ? <span>{item.note}</span> : null}
+                  {item.id === selectedLaunchWatchId && nearestMtrStation ? (
+                    <span>
+                      Nearest MTR / {nearestMtrStation.accessPoint
+                        ? mtrAccessPointLabel(nearestMtrStation.accessPoint)
+                        : nearestMtrStation.station.name} / {formatMtrDistance(nearestMtrStation.distanceMeters)}
+                    </span>
+                  ) : null}
                   <div className="map-popup-actions">
                     <Link href="/launch-watch" className="action-link">
                       Launch watch
@@ -399,6 +560,18 @@ export function DevelopmentLeafletMap({
         <div>
           <span className="legend-ring" />
           <small>Selected / watchlist ring</small>
+        </div>
+        <div>
+          <span className="mtr-legend-station" />
+          <small>MTR station</small>
+        </div>
+        <div>
+          <span className="mtr-legend-access" />
+          <small>MTR access</small>
+        </div>
+        <div>
+          <span className="mtr-legend-nearest" />
+          <small>Nearest access</small>
         </div>
       </div>
     </div>

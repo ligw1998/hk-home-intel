@@ -5,6 +5,12 @@ import Link from "next/link";
 import { CompareToggleButton } from "../components/compare-toggle-button";
 import { MoneyValue } from "../components/money-value";
 import { formatListingSegment } from "../lib/segment";
+import {
+  findNearestMtrStation,
+  formatMtrDistance,
+  mtrAccessPointLabel,
+  mtrLineNames,
+} from "./mtr-overlay-data";
 import type {
   DevelopmentLaunchWatchSignal,
   DevelopmentSummary,
@@ -56,6 +62,20 @@ export function MapSelectedSidebar({
   setSelectedId,
   setSelectedLaunchWatchId,
 }: Props) {
+  const nearestSelectedMtr = selected
+    ? findNearestMtrStation(selected.lat, selected.lng)
+    : selectedLaunchWatch
+      ? findNearestMtrStation(selectedLaunchWatch.lat, selectedLaunchWatch.lng)
+      : null;
+  const nearestSelectedMtrLines = nearestSelectedMtr
+    ? mtrLineNames(nearestSelectedMtr.station).join(", ")
+    : "";
+  const nearestSelectedMtrLabel = nearestSelectedMtr
+    ? nearestSelectedMtr.accessPoint
+      ? mtrAccessPointLabel(nearestSelectedMtr.accessPoint)
+      : nearestSelectedMtr.station.name
+    : "";
+
   return (
     <aside className="panel detail-panel">
       <h2>Selected</h2>
@@ -71,6 +91,12 @@ export function MapSelectedSidebar({
             {selectedLaunchWatch.expected_launch_window ? <span>{selectedLaunchWatch.expected_launch_window}</span> : null}
             {selectedLaunchWatch.linked_development_name ? <span>Linked / {selectedLaunchWatch.linked_development_name}</span> : null}
             {selectedLaunchWatch.note ? <span className="decision-why-now">{selectedLaunchWatch.note}</span> : null}
+            {nearestSelectedMtr ? (
+              <span className="mtr-distance-chip">
+                Nearest MTR / {nearestSelectedMtrLabel} / {formatMtrDistance(nearestSelectedMtr.distanceMeters)}
+                {nearestSelectedMtrLines ? ` / ${nearestSelectedMtrLines}` : ""}
+              </span>
+            ) : null}
             <span>{selectedLaunchWatch.lat?.toFixed(5)}, {selectedLaunchWatch.lng?.toFixed(5)}</span>
             <div className="hero-actions">
               <Link href="/launch-watch">Open launch watch</Link>
@@ -139,6 +165,12 @@ export function MapSelectedSidebar({
             <span>
               {selected.age_years !== null ? `${selected.age_years} years` : selected.completion_year ? `Year proxy ${selected.completion_year}` : "Age TBD"}
             </span>
+            {nearestSelectedMtr ? (
+              <span className="mtr-distance-chip">
+                Nearest MTR / {nearestSelectedMtrLabel} / {formatMtrDistance(nearestSelectedMtr.distanceMeters)}
+                {nearestSelectedMtrLines ? ` / ${nearestSelectedMtrLines}` : ""}
+              </span>
+            ) : null}
             <span>{selected.lat?.toFixed(5)}, {selected.lng?.toFixed(5)}</span>
             <div className="hero-actions">
               <Link href={`/developments/${selected.id}`}>Open detail page</Link>
